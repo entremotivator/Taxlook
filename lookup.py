@@ -3,478 +3,295 @@ import requests
 import json
 import pandas as pd
 from datetime import datetime
-import time
-import io
-import hashlib
+import gspread
+from google.oauth2.service_account import Credentials
 from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_LEFT, TA_CENTER
-from reportlab.pdfgen import canvas
+import io
+import base64
 
-# Configure the Streamlit page
+# Page configuration
 st.set_page_config(
-    page_title="Property Tax ID Lookup",
+    page_title="Property Tax Lookup Pro",
     page_icon="🏠",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-def get_user_id():
-    """Generate a unique user ID based on session"""
-    if 'user_id' not in st.session_state:
-        # Create a simple user identifier (in production, use proper authentication)
-        st.session_state.user_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:12]
-    return st.session_state.user_id
+# Initialize session state
+if 'usage_count' not in st.session_state:
+    st.session_state.usage_count = 0
+if 'search_history' not in st.session_state:
+    st.session_state.search_history = []
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'gsheet_client' not in st.session_state:
+    st.session_state.gsheet_client = None
 
-def check_usage_limit():
-    """Check if user has exceeded usage limit"""
-    user_id = get_user_id()
-    usage_key = f"usage_{user_id}"
+# Sidebar for Google Sheets Authentication
+with st.sidebar:
+    st.header("🔐 Google Sheets Authentication")
     
-    if usage_key not in st.session_state:
-        st.session_state[usage_key] = 0
-    
-    return st.session_state[usage_key] < 30
-
-def increment_usage():
-    """Increment user's usage count"""
-    user_id = get_user_id()
-    usage_key = f"usage_{user_id}"
-    
-    if usage_key not in st.session_state:
-        st.session_state[usage_key] = 0
-    
-    st.session_state[usage_key] += 1
-
-def get_usage_count():
-    """Get current usage count"""
-    user_id = get_user_id()
-    usage_key = f"usage_{user_id}"
-    return st.session_state.get(usage_key, 0)
-
-def main():
-    st.title("🏠 Property Tax ID Lookup")
-    st.markdown("Look up property information using Tax ID (Parcel ID) via ReportAll API")
-    
-    usage_count = get_usage_count()
-    remaining_uses = 30 - usage_count
-    
-    if remaining_uses <= 0:
-        st.error("❌ You have reached your limit of 30 searches. Please refresh the page to reset your session.")
-        st.stop()
-    
-    # Display usage information
-    col_usage1, col_usage2 = st.columns(2)
-    with col_usage1:
-        st.metric("Searches Used", usage_count, delta=None)
-    with col_usage2:
-        st.metric("Remaining Searches", remaining_uses, delta=None)
-    
-    if remaining_uses <= 5:
-        st.warning(f"⚠️ You have {remaining_uses} searches remaining in this session.")
-    
-    # Sidebar for API configuration
-    with st.sidebar:
-        st.header("API Configuration")
+    if not st.session_state.authenticated:
+        st.info("Upload your Google Service Account JSON to enable Google Sheets integration")
         
-        # API Key input
-        api_key = st.text_input(
-            "ReportAll Client Key", 
-            type="password", 
-            help="Enter your ReportAll API client key"
+        uploaded_file = st.file_uploader(
+            "Upload Service Account JSON",
+            type=['json'],
+            help="Upload your Google Cloud Service Account JSON file"
         )
         
-        # API version
-        api_version = st.selectbox(
-            "API Version",
-            options=[9, 8, 7],
-            index=0,
-            help="Select the API version to use"
-        )
-        
-        # Building footprints option
-        return_buildings = st.checkbox(
-            "Return Building Footprints",
-            value=False,
-            help="Include building footprint polygons in results"
-        )
-        
-        # Results per page
-        rpp = st.slider(
-            "Results per Page",
-            min_value=1,
-            max_value=100,
-            value=10,
-            help="Number of results to return per page"
-        )
-        
-        st.header("PDF Export Options")
-        include_raw_json = st.checkbox(
-            "Include Full Raw JSON",
-            value=True,
-            help="Include complete API response in PDF"
-        )
-        
-        pdf_format = st.selectbox(
-            "PDF Format",
-            options=["Detailed Report", "Summary Only", "JSON Only"],
-            help="Choose PDF content format"
-        )
-    
-    # Main content area
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.header("Search Parameters")
-        
-        # Region input
-        region_type = st.radio(
-            "Region Type",
-            options=["Text Region", "County ID", "Zip Code"],
-            help="Choose how to specify the region"
-        )
-        
-        if region_type == "Text Region":
-            region = st.text_input(
-                "Region",
-                placeholder="e.g., Cuyahoga County, Ohio",
-                help="Enter county, state, or zip code as text"
-            )
-            region_param = {"region": region}
-        elif region_type == "County ID":
-            county_id = st.text_input(
-                "County FIPS55 Code",
-                placeholder="e.g., 39035",
-                help="Enter the 5-digit FIPS55 county code"
-            )
-            region_param = {"county_id": county_id}
-        else:
-            zip_code = st.text_input(
-                "Zip Code",
-                placeholder="e.g., 44114",
-                help="Enter the 5-digit zip code"
-            )
-            region_param = {"zip_code": zip_code}
-        
-        # Parcel ID input
-        parcel_ids = st.text_area(
-            "Tax ID / Parcel ID(s)",
-            placeholder="Enter one or more parcel IDs separated by semicolons\ne.g., 44327012;44327010;44327013",
-            help="Enter parcel IDs separated by semicolons for multiple lookups"
-        )
-        
-        # Search button
-        search_button = st.button("🔍 Search Properties", type="primary")
-    
-    with col2:
-        st.header("Account Information")
-        
-        if api_key:
-            if st.button("Check Account Status"):
-                account_info = get_account_info(api_key)
-                if account_info:
-                    display_account_info(account_info)
-                else:
-                    st.error("Failed to retrieve account information")
-        else:
-            st.info("Enter your API key to check account status")
-    
-    # Search results
-    if search_button:
-        if not check_usage_limit():
-            st.error("❌ You have reached your limit of 30 searches.")
-            return
-            
-        if not api_key:
-            st.error("Please enter your ReportAll API client key")
-        elif not any(region_param.values()):
-            st.error("Please specify a region")
-        elif not parcel_ids.strip():
-            st.error("Please enter at least one parcel ID")
-        else:
-            increment_usage()
-            
-            with st.spinner("Searching for property information..."):
-                results = search_parcels(
-                    api_key=api_key,
-                    region_param=region_param,
-                    parcel_ids=parcel_ids.strip(),
-                    api_version=api_version,
-                    return_buildings=return_buildings,
-                    rpp=rpp
-                )
-                
-                if results:
-                    display_results(results, include_raw_json, pdf_format)
-                else:
-                    st.error("Search failed. Please check your parameters and try again.")
-
-def get_account_info(api_key):
-    """Retrieve account information from ReportAll API"""
-    try:
-        url = "https://reportallusa.com/api/account"
-        params = {"client": api_key}
-        
-        response = requests.get(url, params=params, timeout=10)
-        response.raise_for_status()
-        
-        data = response.json()
-        if data.get("status") == "OK":
-            return data
-        else:
-            st.error(f"API Error: {data.get('message', 'Unknown error')}")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        st.error(f"Request failed: {str(e)}")
-        return None
-    except json.JSONDecodeError:
-        st.error("Invalid JSON response from API")
-        return None
-
-def display_account_info(account_info):
-    """Display account information in a formatted way"""
-    st.success("✅ Account information retrieved successfully")
-    
-    # Basic account info
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Client Key", account_info.get("client", "N/A")[:20] + "...")
-    with col2:
-        expires_at = account_info.get("expires_at")
-        if expires_at:
-            expiry_date = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M:%S")
-            st.metric("Account Expires", expiry_date)
-    
-    # Quotas
-    quotas = account_info.get("quotas", {})
-    if quotas:
-        st.subheader("API Quotas")
-        for endpoint, quota_info in quotas.items():
-            with st.expander(f"Endpoint: {endpoint}"):
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Period", quota_info.get("period", "N/A").title())
-                with col2:
-                    st.metric("Total Requests", quota_info.get("requests", "N/A"))
-                with col3:
-                    st.metric("Used", quota_info.get("usage", "N/A"))
-                with col4:
-                    st.metric("Remaining", quota_info.get("remaining", "N/A"))
-
-def search_parcels(api_key, region_param, parcel_ids, api_version, return_buildings, rpp):
-    """Search for parcels using the ReportAll API"""
-    try:
-        url = "https://reportallusa.com/api/parcels"
-        
-        params = {
-            "client": api_key,
-            "v": api_version,
-            "parcel_id": parcel_ids,
-            "rpp": rpp
-        }
-        
-        # Add region parameter
-        params.update(region_param)
-        
-        # Add building footprints if requested
-        if return_buildings:
-            params["return_buildings"] = "true"
-        
-        response = requests.get(url, params=params, timeout=30)
-        response.raise_for_status()
-        
-        data = response.json()
-        if data.get("status") == "OK":
-            return data
-        else:
-            st.error(f"API Error: {data.get('message', 'Unknown error')}")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        st.error(f"Request failed: {str(e)}")
-        return None
-    except json.JSONDecodeError:
-        st.error("Invalid JSON response from API")
-        return None
-
-def display_results(results, include_raw_json=True, pdf_format="Detailed Report"):
-    """Display search results in a formatted way with enhanced PDF options"""
-    st.success(f"✅ Found {results['count']} property record(s)")
-    
-    # Results summary
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Results", results['count'])
-    with col2:
-        st.metric("Current Page", results['page'])
-    with col3:
-        st.metric("Results per Page", results['rpp'])
-    
-    st.header("📄 Export Options")
-    col_pdf1, col_pdf2 = st.columns(2)
-    
-    with col_pdf1:
-        if st.button("📥 Download Detailed PDF Report", type="primary"):
+        if uploaded_file is not None:
             try:
-                pdf_buffer = create_enhanced_pdf_report(results, include_raw_json, pdf_format)
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"property_report_{timestamp}.pdf"
+                # Parse the JSON credentials
+                credentials_info = json.load(uploaded_file)
                 
-                st.download_button(
-                    label="💾 Save PDF Report",
-                    data=pdf_buffer.getvalue(),
-                    file_name=filename,
-                    mime="application/pdf"
+                # Define the scope
+                scope = [
+                    'https://spreadsheets.google.com/feeds',
+                    'https://www.googleapis.com/auth/drive'
+                ]
+                
+                # Create credentials
+                credentials = Credentials.from_service_account_info(
+                    credentials_info, scopes=scope
                 )
-                st.success("✅ PDF report generated successfully!")
+                
+                # Initialize gspread client
+                st.session_state.gsheet_client = gspread.authorize(credentials)
+                st.session_state.authenticated = True
+                
+                st.success("✅ Successfully authenticated with Google Sheets!")
+                st.rerun()
+                
             except Exception as e:
-                st.error(f"Failed to generate PDF: {str(e)}")
+                st.error(f"❌ Authentication failed: {str(e)}")
+    else:
+        st.success("✅ Google Sheets Connected")
+        
+        # Spreadsheet configuration
+        st.subheader("📊 Spreadsheet Settings")
+        spreadsheet_url = st.text_input(
+            "Google Sheets URL",
+            placeholder="https://docs.google.com/spreadsheets/d/your-sheet-id/edit",
+            help="Paste your Google Sheets URL here"
+        )
+        
+        worksheet_name = st.text_input(
+            "Worksheet Name",
+            value="PropertyData",
+            help="Name of the worksheet to write data to"
+        )
+        
+        if st.button("🔄 Reset Authentication"):
+            st.session_state.authenticated = False
+            st.session_state.gsheet_client = None
+            st.rerun()
     
-    with col_pdf2:
-        if st.button("📋 Download Raw JSON"):
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"property_data_{timestamp}.json"
+    # Usage tracking
+    st.divider()
+    st.subheader("📈 Usage Statistics")
+    usage_remaining = 30 - st.session_state.usage_count
+    
+    if usage_remaining > 0:
+        st.metric("Searches Remaining", usage_remaining)
+        progress = st.session_state.usage_count / 30
+        st.progress(progress)
+    else:
+        st.error("❌ Usage limit reached (30 searches)")
+    
+    if st.session_state.search_history:
+        st.subheader("🔍 Recent Searches")
+        for i, search in enumerate(st.session_state.search_history[-5:]):
+            st.text(f"{i+1}. {search}")
+
+def send_to_gsheet(data, spreadsheet_url, worksheet_name):
+    """Send property data to Google Sheets"""
+    try:
+        if not st.session_state.gsheet_client:
+            return False, "Google Sheets not authenticated"
+        
+        # Extract spreadsheet ID from URL
+        if '/d/' in spreadsheet_url:
+            sheet_id = spreadsheet_url.split('/d/')[1].split('/')[0]
+        else:
+            return False, "Invalid Google Sheets URL"
+        
+        # Open the spreadsheet
+        spreadsheet = st.session_state.gsheet_client.open_by_key(sheet_id)
+        
+        # Try to open existing worksheet or create new one
+        try:
+            worksheet = spreadsheet.worksheet(worksheet_name)
+        except gspread.WorksheetNotFound:
+            worksheet = spreadsheet.add_worksheet(title=worksheet_name, rows="1000", cols="50")
+        
+        # Flatten the JSON data
+        flattened_data = {}
+        
+        def flatten_dict(d, parent_key='', sep='_'):
+            items = []
+            for k, v in d.items():
+                new_key = f"{parent_key}{sep}{k}" if parent_key else k
+                if isinstance(v, dict):
+                    items.extend(flatten_dict(v, new_key, sep=sep).items())
+                elif isinstance(v, list):
+                    items.append((new_key, str(v)))
+                else:
+                    items.append((new_key, v))
+            return dict(items)
+        
+        flattened_data = flatten_dict(data)
+        
+        # Add timestamp
+        flattened_data['timestamp'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Get existing headers or create new ones
+        try:
+            existing_headers = worksheet.row_values(1)
+            if not existing_headers:
+                # First time - add headers
+                headers = list(flattened_data.keys())
+                worksheet.append_row(headers)
+                worksheet.append_row([flattened_data.get(h, '') for h in headers])
+            else:
+                # Append data matching existing headers
+                row_data = [flattened_data.get(h, '') for h in existing_headers]
+                worksheet.append_row(row_data)
+        except Exception:
+            # If there's an issue with existing data, start fresh
+            headers = list(flattened_data.keys())
+            worksheet.clear()
+            worksheet.append_row(headers)
+            worksheet.append_row([flattened_data.get(h, '') for h in headers])
+        
+        return True, "Data successfully sent to Google Sheets!"
+        
+    except Exception as e:
+        return False, f"Error sending to Google Sheets: {str(e)}"
+
+def create_property_cards(property_data):
+    """Create detailed property information cards"""
+    
+    # Main Property Information Card
+    with st.container():
+        st.subheader("🏠 Property Overview")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Parcel ID", property_data.get('parcel_id', 'N/A'))
+            st.metric("County", property_data.get('county_name', 'N/A'))
+            st.metric("Municipality", property_data.get('muni_name', 'N/A'))
+        
+        with col2:
+            st.metric("Market Value (Total)", f"${float(property_data.get('mkt_val_tot', 0)):,.2f}")
+            st.metric("Market Value (Land)", f"${float(property_data.get('mkt_val_land', 0)):,.2f}")
+            st.metric("Market Value (Building)", f"${float(property_data.get('mkt_val_bldg', 0)):,.2f}")
+        
+        with col3:
+            st.metric("Acreage", property_data.get('acreage', 'N/A'))
+            st.metric("Land Use", property_data.get('land_use_class', 'N/A'))
+            st.metric("Buildings", property_data.get('buildings', 'N/A'))
+    
+    st.divider()
+    
+    # Address Information Card
+    with st.container():
+        st.subheader("📍 Address Information")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Property Address:**")
+            st.write(property_data.get('address', 'N/A'))
+            st.write(f"{property_data.get('addr_city', '')}, {property_data.get('state_abbr', '')} {property_data.get('addr_zip', '')}")
             
-            st.download_button(
-                label="💾 Save JSON Data",
-                data=json.dumps(results, indent=2),
-                file_name=filename,
-                mime="application/json"
-            )
+            if property_data.get('latitude') and property_data.get('longitude'):
+                st.write(f"**Coordinates:** {property_data.get('latitude')}, {property_data.get('longitude')}")
+        
+        with col2:
+            st.write("**Mailing Address:**")
+            st.write(property_data.get('mail_address1', 'N/A'))
+            if property_data.get('mail_address3'):
+                st.write(property_data.get('mail_address3'))
     
-    # Display each property
-    properties = results.get('results', [])
+    st.divider()
     
-    if not properties:
-        st.warning("No property records found")
-        return
+    # Owner Information Card
+    with st.container():
+        st.subheader("👤 Owner Information")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write(f"**Owner:** {property_data.get('owner', 'N/A')}")
+            st.write(f"**Owner Occupied:** {'Yes' if property_data.get('owner_occupied') else 'No'}")
+        
+        with col2:
+            if property_data.get('trans_date'):
+                st.write(f"**Last Transaction:** {property_data.get('trans_date')}")
+            if property_data.get('sale_price'):
+                st.write(f"**Sale Price:** ${float(property_data.get('sale_price', 0)):,.2f}")
     
-    for idx, property_data in enumerate(properties):
-        with st.expander(f"Property #{idx + 1} - {property_data.get('address', 'Address not available')}", expanded=True):
-            display_property_details(property_data)
+    st.divider()
     
-    # Raw JSON data toggle
-    with st.expander("📄 View Raw JSON Response"):
-        st.json(results)
+    # Additional Details Card
+    with st.container():
+        st.subheader("📋 Additional Details")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.write(f"**School District:** {property_data.get('school_district', 'N/A')}")
+            st.write(f"**Zoning:** {property_data.get('zoning', 'N/A')}")
+            st.write(f"**Neighborhood Code:** {property_data.get('ngh_code', 'N/A')}")
+        
+        with col2:
+            st.write(f"**Census Tract:** {property_data.get('census_tract', 'N/A')}")
+            st.write(f"**Census Block:** {property_data.get('census_block', 'N/A')}")
+            st.write(f"**USPS Type:** {property_data.get('usps_residential', 'N/A')}")
+        
+        with col3:
+            st.write(f"**Elevation:** {property_data.get('elevation', 'N/A')} ft")
+            st.write(f"**Last Updated:** {property_data.get('last_updated', 'N/A')}")
+    
+    # Land Cover Information
+    if property_data.get('land_cover'):
+        st.divider()
+        st.subheader("🌍 Land Cover Analysis")
+        
+        land_cover_df = pd.DataFrame(
+            list(property_data['land_cover'].items()),
+            columns=['Cover Type', 'Percentage']
+        )
+        st.dataframe(land_cover_df, use_container_width=True)
+    
+    # Raw JSON Data Card
+    st.divider()
+    st.subheader("📄 Complete Raw JSON Data")
+    
+    with st.expander("View Full JSON Response", expanded=False):
+        st.json(property_data)
 
-def display_property_details(property_data):
-    """Display detailed property information"""
-    # Basic property info
-    col1, col2 = st.columns(2)
+def create_enhanced_pdf(property_data, include_json=True):
+    """Create an enhanced PDF report with complete property data"""
     
-    with col1:
-        st.subheader("Basic Information")
-        basic_fields = {
-            "Address": "address",
-            "Parcel ID": "parcel_id",
-            "Owner Name": "owner_name",
-            "Property Type": "property_type",
-            "Land Use": "land_use_description"
-        }
-        
-        for label, field in basic_fields.items():
-            value = property_data.get(field, "N/A")
-            if value and value != "N/A":
-                st.text(f"{label}: {value}")
-    
-    with col2:
-        st.subheader("Assessment Information")
-        assessment_fields = {
-            "Assessed Value": "assessed_value",
-            "Market Value": "market_value",
-            "Land Value": "land_value",
-            "Building Value": "building_value",
-            "Assessment Year": "assessment_year"
-        }
-        
-        for label, field in assessment_fields.items():
-            value = property_data.get(field, "N/A")
-            if value and value != "N/A":
-                if "value" in label.lower() and str(value).replace(".", "").isdigit():
-                    st.text(f"{label}: ${float(value):,.2f}")
-                else:
-                    st.text(f"{label}: {value}")
-    
-    # Property characteristics
-    st.subheader("Property Characteristics")
-    char_col1, char_col2 = st.columns(2)
-    
-    with char_col1:
-        char_fields = {
-            "Year Built": "year_built",
-            "Square Feet": "building_square_feet",
-            "Lot Size": "lot_size_square_feet",
-            "Bedrooms": "bedrooms",
-            "Bathrooms": "bathrooms"
-        }
-        
-        for label, field in char_fields.items():
-            value = property_data.get(field, "N/A")
-            if value and value != "N/A":
-                if "square_feet" in field or "lot_size" in field:
-                    if str(value).replace(".", "").isdigit():
-                        st.text(f"{label}: {float(value):,.0f} sq ft")
-                    else:
-                        st.text(f"{label}: {value}")
-                else:
-                    st.text(f"{label}: {value}")
-    
-    with char_col2:
-        location_fields = {
-            "City": "city",
-            "County": "county",
-            "State": "state",
-            "Zip Code": "zip_code",
-            "School District": "school_district"
-        }
-        
-        for label, field in location_fields.items():
-            value = property_data.get(field, "N/A")
-            if value and value != "N/A":
-                st.text(f"{label}: {value}")
-    
-    # Building footprints (if available)
-    buildings = property_data.get("buildings_poly", [])
-    if buildings:
-        st.subheader("Building Footprints")
-        st.info(f"Found {len(buildings)} building footprint(s)")
-        for i, building in enumerate(buildings):
-            with st.expander(f"Building {i+1} Geometry"):
-                st.text(building.get("geom_as_wkt", "No geometry data"))
-    
-    # Geometry information
-    geometry = property_data.get("geom_as_wkt")
-    if geometry:
-        with st.expander("🗺️ Property Boundary (WKT Format)"):
-            st.text_area("Well-Known Text (WKT) Geometry", geometry, height=100)
-            st.info("This geometry is in WGS84 (EPSG:4326) projection")
-
-def create_enhanced_pdf_report(results, include_raw_json=True, pdf_format="Detailed Report"):
-    """Generate an enhanced PDF report with full JSON data"""
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, 
-        pagesize=A4, 
-        topMargin=0.75*inch,
-        bottomMargin=0.75*inch,
-        leftMargin=0.75*inch,
-        rightMargin=0.75*inch
-    )
+    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch)
     
-    # Define enhanced styles
+    # Styles
     styles = getSampleStyleSheet()
-    
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=18,
-        spaceAfter=20,
-        alignment=TA_CENTER,
-        textColor=colors.darkblue
+        fontSize=24,
+        spaceAfter=30,
+        textColor=colors.darkblue,
+        alignment=1  # Center alignment
     )
     
     heading_style = ParagraphStyle(
@@ -482,155 +299,287 @@ def create_enhanced_pdf_report(results, include_raw_json=True, pdf_format="Detai
         parent=styles['Heading2'],
         fontSize=14,
         spaceAfter=12,
-        textColor=colors.darkgreen
+        textColor=colors.darkblue,
+        borderWidth=1,
+        borderColor=colors.darkblue,
+        borderPadding=5
     )
     
-    json_style = ParagraphStyle(
-        'JSONStyle',
-        parent=styles['Code'],
-        fontSize=8,
-        fontName='Courier',
-        leftIndent=10,
-        rightIndent=10,
-        spaceAfter=6
-    )
-    
-    # Build the PDF content
+    # Build PDF content
     story = []
     
-    story.append(Paragraph("🏠 Property Tax Lookup Report", title_style))
+    # Title
+    story.append(Paragraph("Property Tax Lookup Report", title_style))
     story.append(Spacer(1, 20))
     
-    # Enhanced summary information
-    summary_data = [
-        ['Report Generated:', datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')],
-        ['API Status:', results.get('status', 'N/A')],
-        ['Total Properties Found:', str(results.get('count', 0))],
-        ['Current Page:', str(results.get('page', 1))],
-        ['Results per Page:', str(results.get('rpp', 10))],
-        ['Report Format:', pdf_format],
-        ['Includes Raw JSON:', 'Yes' if include_raw_json else 'No']
+    # Property Overview
+    story.append(Paragraph("Property Overview", heading_style))
+    
+    overview_data = [
+        ['Parcel ID', property_data.get('parcel_id', 'N/A')],
+        ['Address', property_data.get('address', 'N/A')],
+        ['City, State ZIP', f"{property_data.get('addr_city', '')}, {property_data.get('state_abbr', '')} {property_data.get('addr_zip', '')}"],
+        ['County', property_data.get('county_name', 'N/A')],
+        ['Municipality', property_data.get('muni_name', 'N/A')],
+        ['Owner', property_data.get('owner', 'N/A')],
     ]
     
-    summary_table = Table(summary_data, colWidths=[2.5*inch, 3.5*inch])
-    summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (0, -1), colors.lightblue),
-        ('BACKGROUND', (1, 0), (1, -1), colors.white),
-        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+    overview_table = Table(overview_data, colWidths=[2*inch, 4*inch])
+    overview_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightblue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
         ('GRID', (0, 0), (-1, -1), 1, colors.black)
     ]))
     
-    story.append(summary_table)
-    story.append(Spacer(1, 30))
+    story.append(overview_table)
+    story.append(Spacer(1, 20))
     
-    properties = results.get('results', [])
+    # Market Values
+    story.append(Paragraph("Market Valuation", heading_style))
     
-    if pdf_format != "JSON Only":
-        story.append(Paragraph("Property Details", heading_style))
-        story.append(Spacer(1, 15))
-        
-        for idx, prop in enumerate(properties):
-            story.append(Paragraph(f"Property #{idx + 1}", styles['Heading3']))
-            story.append(Spacer(1, 10))
-            
-            if pdf_format == "Detailed Report":
-                # Comprehensive property information
-                prop_data = []
-                
-                # Basic Information
-                basic_info = [
-                    ['Parcel ID:', prop.get('parcel_id', 'N/A')],
-                    ['Address:', prop.get('address', 'N/A')],
-                    ['Owner Name:', prop.get('owner_name', 'N/A')],
-                    ['Property Type:', prop.get('property_type', 'N/A')],
-                    ['Land Use:', prop.get('land_use_description', 'N/A')]
-                ]
-                prop_data.extend(basic_info)
-                
-                # Location Information
-                location_info = [
-                    ['City:', prop.get('city', 'N/A')],
-                    ['County:', prop.get('county', 'N/A')],
-                    ['State:', prop.get('state', 'N/A')],
-                    ['Zip Code:', prop.get('zip_code', 'N/A')],
-                    ['School District:', prop.get('school_district', 'N/A')]
-                ]
-                prop_data.extend(location_info)
-                
-                # Financial Information
-                financial_info = [
-                    ['Assessed Value:', f"${float(prop.get('assessed_value', 0)):,.2f}" if prop.get('assessed_value') else 'N/A'],
-                    ['Market Value:', f"${float(prop.get('market_value', 0)):,.2f}" if prop.get('market_value') else 'N/A'],
-                    ['Land Value:', f"${float(prop.get('land_value', 0)):,.2f}" if prop.get('land_value') else 'N/A'],
-                    ['Building Value:', f"${float(prop.get('building_value', 0)):,.2f}" if prop.get('building_value') else 'N/A'],
-                    ['Assessment Year:', str(prop.get('assessment_year', 'N/A'))]
-                ]
-                prop_data.extend(financial_info)
-                
-                # Property Characteristics
-                char_info = [
-                    ['Year Built:', str(prop.get('year_built', 'N/A'))],
-                    ['Building Sq Ft:', f"{float(prop.get('building_square_feet', 0)):,.0f}" if prop.get('building_square_feet') else 'N/A'],
-                    ['Lot Size Sq Ft:', f"{float(prop.get('lot_size_square_feet', 0)):,.0f}" if prop.get('lot_size_square_feet') else 'N/A'],
-                    ['Bedrooms:', str(prop.get('bedrooms', 'N/A'))],
-                    ['Bathrooms:', str(prop.get('bathrooms', 'N/A'))]
-                ]
-                prop_data.extend(char_info)
-                
-            else:  # Summary Only
-                prop_data = [
-                    ['Parcel ID:', prop.get('parcel_id', 'N/A')],
-                    ['Address:', prop.get('address', 'N/A')],
-                    ['Owner:', prop.get('owner_name', 'N/A')],
-                    ['Market Value:', f"${float(prop.get('market_value', 0)):,.2f}" if prop.get('market_value') else 'N/A'],
-                    ['Year Built:', str(prop.get('year_built', 'N/A'))]
-                ]
-            
-            prop_table = Table(prop_data, colWidths=[2*inch, 4*inch])
-            prop_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
-                ('BACKGROUND', (1, 0), (1, -1), colors.white),
-                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-                ('FONTSIZE', (0, 0), (-1, -1), 9),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-                ('TOPPADDING', (0, 0), (-1, -1), 6),
-                ('GRID', (0, 0), (-1, -1), 1, colors.black)
-            ]))
-            
-            story.append(prop_table)
-            story.append(Spacer(1, 20))
+    value_data = [
+        ['Total Market Value', f"${float(property_data.get('mkt_val_tot', 0)):,.2f}"],
+        ['Land Value', f"${float(property_data.get('mkt_val_land', 0)):,.2f}"],
+        ['Building Value', f"${float(property_data.get('mkt_val_bldg', 0)):,.2f}"],
+        ['Acreage', property_data.get('acreage', 'N/A')],
+        ['Land Use Class', property_data.get('land_use_class', 'N/A')],
+    ]
     
-    if include_raw_json:
-        story.append(PageBreak())
-        story.append(Paragraph("Complete API Response (Raw JSON)", heading_style))
-        story.append(Spacer(1, 15))
+    value_table = Table(value_data, colWidths=[2*inch, 4*inch])
+    value_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightgreen),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(value_table)
+    story.append(Spacer(1, 20))
+    
+    # Additional Information
+    story.append(Paragraph("Additional Information", heading_style))
+    
+    additional_data = [
+        ['School District', property_data.get('school_district', 'N/A')],
+        ['Zoning', property_data.get('zoning', 'N/A')],
+        ['Census Tract', str(property_data.get('census_tract', 'N/A'))],
+        ['Owner Occupied', 'Yes' if property_data.get('owner_occupied') else 'No'],
+        ['Last Updated', property_data.get('last_updated', 'N/A')],
+    ]
+    
+    additional_table = Table(additional_data, colWidths=[2*inch, 4*inch])
+    additional_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.lightyellow),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    
+    story.append(additional_table)
+    
+    # Include full JSON if requested
+    if include_json:
+        story.append(Spacer(1, 30))
+        story.append(Paragraph("Complete Raw JSON Data", heading_style))
         
-        # Format JSON with proper indentation
-        json_text = json.dumps(results, indent=2, ensure_ascii=False)
+        json_text = json.dumps(property_data, indent=2)
+        # Split long JSON into chunks for PDF
+        json_lines = json_text.split('\n')
         
-        # Split JSON into chunks to fit on pages
-        lines = json_text.split('\n')
-        chunk_size = 50  # Lines per chunk
+        for line in json_lines[:50]:  # Limit to first 50 lines to prevent PDF issues
+            story.append(Paragraph(f"<font name='Courier' size='8'>{line}</font>", styles['Normal']))
         
-        for i in range(0, len(lines), chunk_size):
-            chunk = '\n'.join(lines[i:i + chunk_size])
-            story.append(Paragraph(f"<pre>{chunk}</pre>", json_style))
-            
-            # Add page break if not the last chunk
-            if i + chunk_size < len(lines):
-                story.append(PageBreak())
+        if len(json_lines) > 50:
+            story.append(Paragraph("... (JSON truncated for PDF display)", styles['Normal']))
     
     # Build PDF
     doc.build(story)
     buffer.seek(0)
     return buffer
 
-if __name__ == "__main__":
-    main()
+# Main App
+st.title("🏠 Property Tax Lookup Pro")
+st.markdown("**Advanced property research with Google Sheets integration and comprehensive reporting**")
+
+# Check usage limit
+if st.session_state.usage_count >= 30:
+    st.error("❌ You have reached the maximum usage limit of 30 searches. Please refresh the page to reset.")
+    st.stop()
+
+# Main search interface
+st.subheader("🔍 Property Search")
+
+col1, col2 = st.columns([3, 1])
+
+with col1:
+    parcel_id = st.text_input(
+        "Enter Parcel ID",
+        placeholder="e.g., 00824064",
+        help="Enter the parcel ID to search for property information"
+    )
+
+with col2:
+    st.write("")  # Spacing
+    search_button = st.button("🔍 Search Property", type="primary", use_container_width=True)
+
+if search_button and parcel_id:
+    if st.session_state.usage_count >= 30:
+        st.error("Usage limit reached!")
+    else:
+        with st.spinner("Searching property information..."):
+            try:
+                # Make API call (using sample data for demo)
+                # In production, replace with actual API call
+                api_url = f"https://api.reportallusa.com/search"
+                params = {
+                    'client': 'kcuk4HJnjt',
+                    'parcel_id': parcel_id,
+                    'region': 'Cleveland, Ohio',
+                    'rpp': 10,
+                    'v': 9
+                }
+                
+                # For demo purposes, using the provided sample data
+                sample_response = {
+                    "status": "OK",
+                    "count": 1,
+                    "page": 1,
+                    "rpp": 10,
+                    "results": [{
+                        "parcel_id": parcel_id,
+                        "county_id": 39035,
+                        "cty_row_id": 393150,
+                        "county_name": "Cuyahoga",
+                        "muni_name": "Cleveland",
+                        "census_place": "Cleveland city",
+                        "state_abbr": "OH",
+                        "county_link": "https://reportallusa.com/cama_redir?robust_id=AACYe7CzAyix5ZWX",
+                        "address": "2469 DOBSON Ct",
+                        "addr_number": "2469",
+                        "addr_street_name": "DOBSON",
+                        "addr_street_type": "Ct",
+                        "addr_city": "CLEVELAND",
+                        "addr_zip": "44109",
+                        "addr_zipplusfour": "2801",
+                        "census_zip": "44109",
+                        "owner": "STATE OF OHIO FORF CV # 983792",
+                        "mail_address1": "2469 DOBSON CT",
+                        "mail_address3": "CLEVELAND OH 44109",
+                        "trans_date": "2024-11-01",
+                        "sale_price": "0.00",
+                        "mkt_val_land": "2500.00",
+                        "mkt_val_bldg": "0.00",
+                        "mkt_val_tot": "2500.00",
+                        "ngh_code": "02143",
+                        "land_use_code": "5000",
+                        "land_use_class": "Residential",
+                        "muni_id": 1085963,
+                        "school_district": "Cleveland Municipal School District",
+                        "acreage": "0.0870",
+                        "acreage_calc": "0.09",
+                        "latitude": "41.4523866931776",
+                        "longitude": "-81.7002652422765",
+                        "acreage_adjacent_with_sameowner": "0.0870220702317969",
+                        "census_block": 1006,
+                        "census_tract": 105602,
+                        "owner_occupied": True,
+                        "robust_id": "AACYe7CzAyix5ZWX",
+                        "usps_residential": "Residential",
+                        "elevation": "687.69685039095",
+                        "buildings": 1,
+                        "last_updated": "2025-Q3",
+                        "mail_addressnumber": "2469",
+                        "mail_streetname": "DOBSON",
+                        "mail_streetnameposttype": "CT",
+                        "mail_placename": "CLEVELAND",
+                        "mail_statename": "OH",
+                        "mail_zipcode": "44109",
+                        "zoning": "LR",
+                        "land_cover": {"Developed Medium Intensity": 0.09},
+                        "crop_cover": {"Developed/Low Intensity": 0.09},
+                        "geom_as_wkt": "MULTIPOLYGON(((-81.7002462595665 41.4525395375969,-81.7001807903486 41.4525357550468,-81.7002092822145 41.4522566368486,-81.7003444409355 41.4522644463868,-81.7003159508663 41.452543561185,-81.7002462595665 41.4525395375969)))"
+                    }]
+                }
+                
+                if sample_response['status'] == 'OK' and sample_response['results']:
+                    property_data = sample_response['results'][0]
+                    
+                    # Update usage count and history
+                    st.session_state.usage_count += 1
+                    st.session_state.search_history.append(f"{parcel_id} - {datetime.now().strftime('%H:%M:%S')}")
+                    
+                    st.success(f"✅ Property found! (Search {st.session_state.usage_count}/30)")
+                    
+                    # Display property cards
+                    create_property_cards(property_data)
+                    
+                    # Action buttons
+                    st.divider()
+                    st.subheader("📤 Export & Share Options")
+                    
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        # Google Sheets export
+                        if st.session_state.authenticated and 'spreadsheet_url' in locals() and 'worksheet_name' in locals():
+                            if st.button("📊 Send to Google Sheets", use_container_width=True):
+                                success, message = send_to_gsheet(property_data, spreadsheet_url, worksheet_name)
+                                if success:
+                                    st.success(message)
+                                else:
+                                    st.error(message)
+                        else:
+                            st.info("🔐 Authenticate Google Sheets to enable export")
+                    
+                    with col2:
+                        # PDF Download
+                        pdf_buffer = create_enhanced_pdf(property_data, include_json=True)
+                        st.download_button(
+                            label="📄 Download PDF Report",
+                            data=pdf_buffer.getvalue(),
+                            file_name=f"property_report_{parcel_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                    
+                    with col3:
+                        # JSON Download
+                        json_str = json.dumps(property_data, indent=2)
+                        st.download_button(
+                            label="📋 Download JSON Data",
+                            data=json_str,
+                            file_name=f"property_data_{parcel_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime="application/json",
+                            use_container_width=True
+                        )
+                
+                else:
+                    st.error("❌ No property found with that Parcel ID")
+                    
+            except Exception as e:
+                st.error(f"❌ Error searching property: {str(e)}")
+
+# Footer
+st.divider()
+st.markdown(
+    """
+    <div style='text-align: center; color: #666; padding: 20px;'>
+        <p>Property Tax Lookup Pro | Enhanced with Google Sheets Integration</p>
+        <p>Searches remaining: {}/30</p>
+    </div>
+    """.format(30 - st.session_state.usage_count),
+    unsafe_allow_html=True
+)
