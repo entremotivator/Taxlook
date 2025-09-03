@@ -345,6 +345,9 @@ def display_property_details(property_data):
 
 def create_pdf_report(results):
     """Generate a PDF report of the search results"""
+    if not REPORTLAB_AVAILABLE:
+        raise ImportError("ReportLab is not installed. Install it with: pip install reportlab")
+    
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=1*inch)
     
