@@ -343,5 +343,88 @@ def display_property_details(property_data):
             st.text_area("Well-Known Text (WKT) Geometry", geometry, height=100)
             st.info("This geometry is in WGS84 (EPSG:4326) projection")
 
+def create_pdf_report(results):
+    """Generate a PDF report of the search results"""
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=1*inch)
+    
+    # Define styles
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=16,
+        spaceAfter=30,
+    )
+    
+    # Build the PDF content
+    story = []
+    
+    # Title
+    story.append(Paragraph("Property Lookup Report", title_style))
+    story.append(Spacer(1, 12))
+    
+    # Summary information
+    summary_data = [
+        ['Status:', results.get('status', 'N/A')],
+        ['Total Properties:', str(results.get('count', 0))],
+        ['Page:', str(results.get('page', 1))],
+        ['Results per Page:', str(results.get('rpp', 10))],
+        ['Generated:', datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[2*inch, 3*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+    ]))
+    
+    story.append(summary_table)
+    story.append(Spacer(1, 20))
+    
+    # Property details
+    properties = results.get('results', [])
+    for idx, prop in enumerate(properties):
+        story.append(Paragraph(f"Property #{idx + 1}", styles['Heading2']))
+        
+        # Basic property information
+        prop_data = [
+            ['Parcel ID:', prop.get('parcel_id', 'N/A')],
+            ['Address:', prop.get('address', 'N/A')],
+            ['Owner:', prop.get('owner', 'N/A')],
+            ['City:', prop.get('addr_city', 'N/A')],
+            ['County:', prop.get('county_name', 'N/A')],
+            ['State:', prop.get('state_abbr', 'N/A')],
+            ['Zip Code:', prop.get('addr_zip', 'N/A')],
+            ['Market Value:', f"${float(prop.get('mkt_val_tot', 0)):,.2f}" if prop.get('mkt_val_tot') else 'N/A'],
+            ['Land Value:', f"${float(prop.get('mkt_val_land', 0)):,.2f}" if prop.get('mkt_val_land') else 'N/A'],
+            ['Building Value:', f"${float(prop.get('mkt_val_bldg', 0)):,.2f}" if prop.get('mkt_val_bldg') else 'N/A'],
+            ['Acreage:', prop.get('acreage', 'N/A')],
+            ['School District:', prop.get('school_district', 'N/A')],
+        ]
+        
+        prop_table = Table(prop_data, colWidths=[2*inch, 4*inch])
+        prop_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (0, -1), colors.lightblue),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        story.append(prop_table)
+        story.append(Spacer(1, 20))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
 if __name__ == "__main__":
     main()
