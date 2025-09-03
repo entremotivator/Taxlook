@@ -4,6 +4,15 @@ import json
 import pandas as pd
 from datetime import datetime
 import time
+import io
+import hashlib
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
+from reportlab.pdfgen import canvas
 
 # Configure the Streamlit page
 st.set_page_config(
@@ -13,9 +22,59 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+def get_user_id():
+    """Generate a unique user ID based on session"""
+    if 'user_id' not in st.session_state:
+        # Create a simple user identifier (in production, use proper authentication)
+        st.session_state.user_id = hashlib.md5(str(time.time()).encode()).hexdigest()[:12]
+    return st.session_state.user_id
+
+def check_usage_limit():
+    """Check if user has exceeded usage limit"""
+    user_id = get_user_id()
+    usage_key = f"usage_{user_id}"
+    
+    if usage_key not in st.session_state:
+        st.session_state[usage_key] = 0
+    
+    return st.session_state[usage_key] < 30
+
+def increment_usage():
+    """Increment user's usage count"""
+    user_id = get_user_id()
+    usage_key = f"usage_{user_id}"
+    
+    if usage_key not in st.session_state:
+        st.session_state[usage_key] = 0
+    
+    st.session_state[usage_key] += 1
+
+def get_usage_count():
+    """Get current usage count"""
+    user_id = get_user_id()
+    usage_key = f"usage_{user_id}"
+    return st.session_state.get(usage_key, 0)
+
 def main():
     st.title("🏠 Property Tax ID Lookup")
     st.markdown("Look up property information using Tax ID (Parcel ID) via ReportAll API")
+    
+    usage_count = get_usage_count()
+    remaining_uses = 30 - usage_count
+    
+    if remaining_uses <= 0:
+        st.error("❌ You have reached your limit of 30 searches. Please refresh the page to reset your session.")
+        st.stop()
+    
+    # Display usage information
+    col_usage1, col_usage2 = st.columns(2)
+    with col_usage1:
+        st.metric("Searches Used", usage_count, delta=None)
+    with col_usage2:
+        st.metric("Remaining Searches", remaining_uses, delta=None)
+    
+    if remaining_uses <= 5:
+        st.warning(f"⚠️ You have {remaining_uses} searches remaining in this session.")
     
     # Sidebar for API configuration
     with st.sidebar:
@@ -50,6 +109,19 @@ def main():
             max_value=100,
             value=10,
             help="Number of results to return per page"
+        )
+        
+        st.header("PDF Export Options")
+        include_raw_json = st.checkbox(
+            "Include Full Raw JSON",
+            value=True,
+            help="Include complete API response in PDF"
+        )
+        
+        pdf_format = st.selectbox(
+            "PDF Format",
+            options=["Detailed Report", "Summary Only", "JSON Only"],
+            help="Choose PDF content format"
         )
     
     # Main content area
@@ -112,6 +184,10 @@ def main():
     
     # Search results
     if search_button:
+        if not check_usage_limit():
+            st.error("❌ You have reached your limit of 30 searches.")
+            return
+            
         if not api_key:
             st.error("Please enter your ReportAll API client key")
         elif not any(region_param.values()):
@@ -119,6 +195,8 @@ def main():
         elif not parcel_ids.strip():
             st.error("Please enter at least one parcel ID")
         else:
+            increment_usage()
+            
             with st.spinner("Searching for property information..."):
                 results = search_parcels(
                     api_key=api_key,
@@ -130,7 +208,7 @@ def main():
                 )
                 
                 if results:
-                    display_results(results)
+                    display_results(results, include_raw_json, pdf_format)
                 else:
                     st.error("Search failed. Please check your parameters and try again.")
 
@@ -223,8 +301,8 @@ def search_parcels(api_key, region_param, parcel_ids, api_version, return_buildi
         st.error("Invalid JSON response from API")
         return None
 
-def display_results(results):
-    """Display search results in a formatted way"""
+def display_results(results, include_raw_json=True, pdf_format="Detailed Report"):
+    """Display search results in a formatted way with enhanced PDF options"""
     st.success(f"✅ Found {results['count']} property record(s)")
     
     # Results summary
@@ -235,6 +313,38 @@ def display_results(results):
         st.metric("Current Page", results['page'])
     with col3:
         st.metric("Results per Page", results['rpp'])
+    
+    st.header("📄 Export Options")
+    col_pdf1, col_pdf2 = st.columns(2)
+    
+    with col_pdf1:
+        if st.button("📥 Download Detailed PDF Report", type="primary"):
+            try:
+                pdf_buffer = create_enhanced_pdf_report(results, include_raw_json, pdf_format)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"property_report_{timestamp}.pdf"
+                
+                st.download_button(
+                    label="💾 Save PDF Report",
+                    data=pdf_buffer.getvalue(),
+                    file_name=filename,
+                    mime="application/pdf"
+                )
+                st.success("✅ PDF report generated successfully!")
+            except Exception as e:
+                st.error(f"Failed to generate PDF: {str(e)}")
+    
+    with col_pdf2:
+        if st.button("📋 Download Raw JSON"):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"property_data_{timestamp}.json"
+            
+            st.download_button(
+                label="💾 Save JSON Data",
+                data=json.dumps(results, indent=2),
+                file_name=filename,
+                mime="application/json"
+            )
     
     # Display each property
     properties = results.get('results', [])
@@ -343,86 +453,179 @@ def display_property_details(property_data):
             st.text_area("Well-Known Text (WKT) Geometry", geometry, height=100)
             st.info("This geometry is in WGS84 (EPSG:4326) projection")
 
-def create_pdf_report(results):
-    """Generate a PDF report of the search results"""
-    if not REPORTLAB_AVAILABLE:
-        raise ImportError("ReportLab is not installed. Install it with: pip install reportlab")
-    
+def create_enhanced_pdf_report(results, include_raw_json=True, pdf_format="Detailed Report"):
+    """Generate an enhanced PDF report with full JSON data"""
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=1*inch)
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=A4, 
+        topMargin=0.75*inch,
+        bottomMargin=0.75*inch,
+        leftMargin=0.75*inch,
+        rightMargin=0.75*inch
+    )
     
-    # Define styles
+    # Define enhanced styles
     styles = getSampleStyleSheet()
+    
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=30,
+        fontSize=18,
+        spaceAfter=20,
+        alignment=TA_CENTER,
+        textColor=colors.darkblue
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=14,
+        spaceAfter=12,
+        textColor=colors.darkgreen
+    )
+    
+    json_style = ParagraphStyle(
+        'JSONStyle',
+        parent=styles['Code'],
+        fontSize=8,
+        fontName='Courier',
+        leftIndent=10,
+        rightIndent=10,
+        spaceAfter=6
     )
     
     # Build the PDF content
     story = []
     
-    # Title
-    story.append(Paragraph("Property Lookup Report", title_style))
-    story.append(Spacer(1, 12))
+    story.append(Paragraph("🏠 Property Tax Lookup Report", title_style))
+    story.append(Spacer(1, 20))
     
-    # Summary information
+    # Enhanced summary information
     summary_data = [
-        ['Status:', results.get('status', 'N/A')],
-        ['Total Properties:', str(results.get('count', 0))],
-        ['Page:', str(results.get('page', 1))],
+        ['Report Generated:', datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')],
+        ['API Status:', results.get('status', 'N/A')],
+        ['Total Properties Found:', str(results.get('count', 0))],
+        ['Current Page:', str(results.get('page', 1))],
         ['Results per Page:', str(results.get('rpp', 10))],
-        ['Generated:', datetime.now().strftime('%Y-%m-%d %H:%M:%S')]
+        ['Report Format:', pdf_format],
+        ['Includes Raw JSON:', 'Yes' if include_raw_json else 'No']
     ]
     
-    summary_table = Table(summary_data, colWidths=[2*inch, 3*inch])
+    summary_table = Table(summary_data, colWidths=[2.5*inch, 3.5*inch])
     summary_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
+        ('BACKGROUND', (0, 0), (0, -1), colors.lightblue),
+        ('BACKGROUND', (1, 0), (1, -1), colors.white),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 10),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
     ]))
     
     story.append(summary_table)
-    story.append(Spacer(1, 20))
+    story.append(Spacer(1, 30))
     
-    # Property details
     properties = results.get('results', [])
-    for idx, prop in enumerate(properties):
-        story.append(Paragraph(f"Property #{idx + 1}", styles['Heading2']))
+    
+    if pdf_format != "JSON Only":
+        story.append(Paragraph("Property Details", heading_style))
+        story.append(Spacer(1, 15))
         
-        # Basic property information
-        prop_data = [
-            ['Parcel ID:', prop.get('parcel_id', 'N/A')],
-            ['Address:', prop.get('address', 'N/A')],
-            ['Owner:', prop.get('owner', 'N/A')],
-            ['City:', prop.get('addr_city', 'N/A')],
-            ['County:', prop.get('county_name', 'N/A')],
-            ['State:', prop.get('state_abbr', 'N/A')],
-            ['Zip Code:', prop.get('addr_zip', 'N/A')],
-            ['Market Value:', f"${float(prop.get('mkt_val_tot', 0)):,.2f}" if prop.get('mkt_val_tot') else 'N/A'],
-            ['Land Value:', f"${float(prop.get('mkt_val_land', 0)):,.2f}" if prop.get('mkt_val_land') else 'N/A'],
-            ['Building Value:', f"${float(prop.get('mkt_val_bldg', 0)):,.2f}" if prop.get('mkt_val_bldg') else 'N/A'],
-            ['Acreage:', prop.get('acreage', 'N/A')],
-            ['School District:', prop.get('school_district', 'N/A')],
-        ]
+        for idx, prop in enumerate(properties):
+            story.append(Paragraph(f"Property #{idx + 1}", styles['Heading3']))
+            story.append(Spacer(1, 10))
+            
+            if pdf_format == "Detailed Report":
+                # Comprehensive property information
+                prop_data = []
+                
+                # Basic Information
+                basic_info = [
+                    ['Parcel ID:', prop.get('parcel_id', 'N/A')],
+                    ['Address:', prop.get('address', 'N/A')],
+                    ['Owner Name:', prop.get('owner_name', 'N/A')],
+                    ['Property Type:', prop.get('property_type', 'N/A')],
+                    ['Land Use:', prop.get('land_use_description', 'N/A')]
+                ]
+                prop_data.extend(basic_info)
+                
+                # Location Information
+                location_info = [
+                    ['City:', prop.get('city', 'N/A')],
+                    ['County:', prop.get('county', 'N/A')],
+                    ['State:', prop.get('state', 'N/A')],
+                    ['Zip Code:', prop.get('zip_code', 'N/A')],
+                    ['School District:', prop.get('school_district', 'N/A')]
+                ]
+                prop_data.extend(location_info)
+                
+                # Financial Information
+                financial_info = [
+                    ['Assessed Value:', f"${float(prop.get('assessed_value', 0)):,.2f}" if prop.get('assessed_value') else 'N/A'],
+                    ['Market Value:', f"${float(prop.get('market_value', 0)):,.2f}" if prop.get('market_value') else 'N/A'],
+                    ['Land Value:', f"${float(prop.get('land_value', 0)):,.2f}" if prop.get('land_value') else 'N/A'],
+                    ['Building Value:', f"${float(prop.get('building_value', 0)):,.2f}" if prop.get('building_value') else 'N/A'],
+                    ['Assessment Year:', str(prop.get('assessment_year', 'N/A'))]
+                ]
+                prop_data.extend(financial_info)
+                
+                # Property Characteristics
+                char_info = [
+                    ['Year Built:', str(prop.get('year_built', 'N/A'))],
+                    ['Building Sq Ft:', f"{float(prop.get('building_square_feet', 0)):,.0f}" if prop.get('building_square_feet') else 'N/A'],
+                    ['Lot Size Sq Ft:', f"{float(prop.get('lot_size_square_feet', 0)):,.0f}" if prop.get('lot_size_square_feet') else 'N/A'],
+                    ['Bedrooms:', str(prop.get('bedrooms', 'N/A'))],
+                    ['Bathrooms:', str(prop.get('bathrooms', 'N/A'))]
+                ]
+                prop_data.extend(char_info)
+                
+            else:  # Summary Only
+                prop_data = [
+                    ['Parcel ID:', prop.get('parcel_id', 'N/A')],
+                    ['Address:', prop.get('address', 'N/A')],
+                    ['Owner:', prop.get('owner_name', 'N/A')],
+                    ['Market Value:', f"${float(prop.get('market_value', 0)):,.2f}" if prop.get('market_value') else 'N/A'],
+                    ['Year Built:', str(prop.get('year_built', 'N/A'))]
+                ]
+            
+            prop_table = Table(prop_data, colWidths=[2*inch, 4*inch])
+            prop_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+                ('BACKGROUND', (1, 0), (1, -1), colors.white),
+                ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 0), (-1, -1), 9),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            story.append(prop_table)
+            story.append(Spacer(1, 20))
+    
+    if include_raw_json:
+        story.append(PageBreak())
+        story.append(Paragraph("Complete API Response (Raw JSON)", heading_style))
+        story.append(Spacer(1, 15))
         
-        prop_table = Table(prop_data, colWidths=[2*inch, 4*inch])
-        prop_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (0, -1), colors.lightblue),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
-            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 0), (-1, -1), 9),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
+        # Format JSON with proper indentation
+        json_text = json.dumps(results, indent=2, ensure_ascii=False)
         
-        story.append(prop_table)
-        story.append(Spacer(1, 20))
+        # Split JSON into chunks to fit on pages
+        lines = json_text.split('\n')
+        chunk_size = 50  # Lines per chunk
+        
+        for i in range(0, len(lines), chunk_size):
+            chunk = '\n'.join(lines[i:i + chunk_size])
+            story.append(Paragraph(f"<pre>{chunk}</pre>", json_style))
+            
+            # Add page break if not the last chunk
+            if i + chunk_size < len(lines):
+                story.append(PageBreak())
     
     # Build PDF
     doc.build(story)
