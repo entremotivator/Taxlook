@@ -124,7 +124,7 @@ def fetch_property_data(parcel_id):
 
 def generate_mock_data(parcel_id):
     """
-    Generate realistic mock data for demonstration
+    Generate realistic mock data for demonstration - Cuyahoga County only
     Remove this function when implementing real API
     """
     import random
@@ -132,55 +132,79 @@ def generate_mock_data(parcel_id):
     # Generate varied mock data based on parcel_id
     random.seed(hash(parcel_id) % 10000)  # Consistent data for same parcel_id
     
-    counties = ["Cuyahoga", "Franklin", "Hamilton", "Summit", "Montgomery"]
-    cities = ["Cleveland", "Columbus", "Cincinnati", "Akron", "Dayton"]
-    streets = ["Main St", "Oak Ave", "Elm Dr", "Park Blvd", "First Ave", "Second St"]
-    owners = [
+    # Cuyahoga County cities and suburbs
+    cuyahoga_cities = [
+        "Cleveland", "Parma", "Lakewood", "Cleveland Heights", 
+        "Euclid", "Strongsville", "Westlake", "Rocky River",
+        "Bay Village", "Shaker Heights", "University Heights",
+        "Beachwood", "Garfield Heights", "Maple Heights",
+        "Bedford", "Berea", "Brook Park", "Fairview Park"
+    ]
+    
+    # Realistic Cuyahoga County streets
+    cuyahoga_streets = [
+        "Cedar Ave", "Euclid Ave", "Detroit Ave", "Lorain Ave",
+        "Pearl Rd", "Ridge Rd", "Broadview Rd", "State Rd",
+        "Madison Ave", "Carnegie Ave", "Woodland Ave", "Superior Ave",
+        "St Clair Ave", "Payne Ave", "Kinsman Rd", "Harvard Ave"
+    ]
+    
+    # Typical Cuyahoga County property owners
+    cuyahoga_owners = [
         "JOHNSON, MARY A",
         "SMITH FAMILY TRUST", 
         "BROWN, ROBERT & SUSAN",
-        "DAVIS PROPERTIES LLC",
-        "WILSON, JAMES M"
+        "CLEVELAND PROPERTIES LLC",
+        "WILSON, JAMES M",
+        "CUYAHOGA LAND BANK",
+        "THOMPSON, PATRICIA L",
+        "DAVIS INVESTMENT GROUP"
     ]
     
-    county = random.choice(counties)
-    city = random.choice(cities)
+    city = random.choice(cuyahoga_cities)
     street_num = random.randint(100, 9999)
-    street = random.choice(streets)
+    street = random.choice(cuyahoga_streets)
+    
+    # Cuyahoga County ZIP codes (44000-44199 range)
+    cuyahoga_zips = [44101, 44102, 44103, 44104, 44105, 44106, 44107, 44108, 44109, 44110,
+                     44111, 44112, 44113, 44114, 44115, 44116, 44117, 44118, 44119, 44120,
+                     44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130,
+                     44131, 44132, 44133, 44134, 44135, 44136, 44137, 44138, 44139, 44140,
+                     44141, 44142, 44143, 44144, 44145, 44146, 44147, 44149]
     
     return {
         "status": "OK",
         "results": [{
             "parcel_id": parcel_id,
-            "county_name": county,
+            "county_name": "Cuyahoga",
             "muni_name": city,
             "address": f"{street_num} {street}",
             "addr_city": city.upper(),
             "state_abbr": "OH",
-            "addr_zip": f"{random.randint(43000, 45999)}",
-            "owner": random.choice(owners),
-            "sale_price": f"{random.randint(50000, 500000)}.00",
-            "mkt_val_tot": f"{random.randint(75000, 600000)}.00",
-            "mkt_val_land": f"{random.randint(15000, 100000)}.00",
-            "mkt_val_bldg": f"{random.randint(50000, 500000)}.00",
-            "acreage": f"{random.uniform(0.1, 2.0):.4f}",
-            "land_use_class": random.choice(["Residential", "Commercial", "Industrial", "Agricultural"]),
-            "school_district": f"{city} City Schools",
+            "addr_zip": str(random.choice(cuyahoga_zips)),
+            "owner": random.choice(cuyahoga_owners),
+            "sale_price": f"{random.randint(25000, 350000)}.00",  # More realistic for Cuyahoga
+            "mkt_val_tot": f"{random.randint(30000, 400000)}.00",
+            "mkt_val_land": f"{random.randint(8000, 50000)}.00",
+            "mkt_val_bldg": f"{random.randint(15000, 300000)}.00",
+            "acreage": f"{random.uniform(0.05, 1.5):.4f}",  # Typical urban lots
+            "land_use_class": random.choice(["Residential", "Commercial", "Industrial", "Mixed Use"]),
+            "school_district": "Cleveland Municipal School District" if city == "Cleveland" else f"{city} City Schools",
             "owner_occupied": random.choice([True, False]),
-            "last_updated": f"2024-Q{random.randint(1, 4)}",
-            "land_cover": {"Developed Medium Intensity": round(random.uniform(0.05, 0.95), 2)},
-            "buildings": random.randint(1, 3),
-            "latitude": round(random.uniform(39.0, 42.0), 4),
-            "longitude": round(random.uniform(-84.5, -80.5), 4),
-            "trans_date": f"202{random.randint(1, 4)}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}",
-            "zoning": random.choice(["R1F", "R2", "C1", "M1", "A1"]),
-            "ngh_code": f"{random.randint(1000, 9999)}",
-            "census_tract": f"{random.randint(1000, 9999)}",
+            "last_updated": "2024-Q3",
+            "land_cover": {"Developed Medium Intensity": round(random.uniform(0.15, 0.85), 2)},
+            "buildings": random.randint(1, 2),
+            "latitude": round(random.uniform(41.35, 41.65), 4),  # Cuyahoga County coordinates
+            "longitude": round(random.uniform(-81.95, -81.45), 4),
+            "trans_date": f"202{random.randint(0, 4)}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}",
+            "zoning": random.choice(["R1F", "R2", "R3", "C1", "C2", "M1", "PUD"]),
+            "ngh_code": f"{random.randint(100, 999):03d}",
+            "census_tract": f"3906{random.randint(10, 99)}.00",  # Cuyahoga County census format
             "census_block": f"{random.randint(1000, 9999)}",
-            "usps_residential": random.choice(["Residential", "Commercial", "Mixed Use"]),
-            "elevation": f"{random.randint(500, 1200)}",
+            "usps_residential": "Residential" if random.random() > 0.2 else "Commercial",
+            "elevation": f"{random.randint(570, 1050)}",  # Lake Erie to highest point in county
             "mail_address1": f"{street_num} {street}",
-            "mail_address3": f"{city}, OH {random.randint(43000, 45999)}"
+            "mail_address3": f"{city}, OH {random.choice(cuyahoga_zips)}"
         }]
     }
 
