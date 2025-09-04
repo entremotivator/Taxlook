@@ -261,46 +261,77 @@ def create_property_cards(data):
         st.metric("Buildings", data.get('buildings','N/A'))
 
     st.divider()
-    st.subheader("📍 Address Information")
+    st.markdown("""
+    <div style='background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%); 
+                padding: 20px; border-radius: 15px; margin: 10px 0; color: #2d3748; box-shadow: 0 4px 15px rgba(0,0,0,0.1);'>
+        <h3 style='color: #2d3748; margin-bottom: 15px;'>📍 Address Information</h3>
+    """, unsafe_allow_html=True)
+    
     col1, col2 = st.columns(2)
     with col1:
-        st.write("**Property Address:**")
-        st.write(data.get('address','N/A'))
-        st.write(f"{data.get('addr_city','')}, {data.get('state_abbr','')} {data.get('addr_zip','')}")
+        st.markdown(f"""
+        <div style='color: #2d3748; font-weight: 600; margin-bottom: 8px;'>Property Address:</div>
+        <div style='color: #4a5568; margin-bottom: 5px;'>{data.get('address','N/A')}</div>
+        <div style='color: #4a5568; margin-bottom: 10px;'>{data.get('addr_city','')}, {data.get('state_abbr','')} {data.get('addr_zip','')}</div>
+        """, unsafe_allow_html=True)
         if data.get('latitude') and data.get('longitude'):
-            st.write(f"**Coordinates:** {data.get('latitude')}, {data.get('longitude')}")
+            st.markdown(f"<div style='color: #2d3748;'><strong>Coordinates:</strong> {data.get('latitude')}, {data.get('longitude')}</div>", unsafe_allow_html=True)
     with col2:
-        st.write("**Mailing Address:**")
-        st.write(data.get('mail_address1','N/A'))
+        st.markdown(f"""
+        <div style='color: #2d3748; font-weight: 600; margin-bottom: 8px;'>Mailing Address:</div>
+        <div style='color: #4a5568; margin-bottom: 5px;'>{data.get('mail_address1','N/A')}</div>
+        """, unsafe_allow_html=True)
         if data.get('mail_address3'):
-            st.write(data.get('mail_address3'))
+            st.markdown(f"<div style='color: #4a5568;'>{data.get('mail_address3')}</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
-    st.subheader("👤 Owner Information")
+    st.markdown("""
+    <div style='background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); 
+                padding: 20px; border-radius: 15px; margin: 10px 0; color: #2d3748; box-shadow: 0 4px 15px rgba(0,0,0,0.1);'>
+        <h3 style='color: #2d3748; margin-bottom: 15px;'>👤 Owner Information</h3>
+    """, unsafe_allow_html=True)
+    
     col1, col2 = st.columns(2)
     with col1:
-        st.write(f"**Owner:** {data.get('owner','N/A')}")
-        st.write(f"**Owner Occupied:** {'Yes' if data.get('owner_occupied') else 'No'}")
+        st.markdown(f"""
+        <div style='color: #2d3748;'><strong>Owner:</strong> {data.get('owner','N/A')}</div><br>
+        <div style='color: #2d3748;'><strong>Owner Occupied:</strong> {'Yes' if data.get('owner_occupied') else 'No'}</div>
+        """, unsafe_allow_html=True)
     with col2:
         if data.get('trans_date'):
-            st.write(f"**Last Transaction:** {data.get('trans_date')}")
+            st.markdown(f"<div style='color: #2d3748;'><strong>Last Transaction:</strong> {data.get('trans_date')}</div><br>", unsafe_allow_html=True)
         if data.get('sale_price'):
-            st.write(f"**Sale Price:** ${float(data.get('sale_price',0)):,.2f}")
+            st.markdown(f"<div style='color: #2d3748;'><strong>Sale Price:</strong> ${float(data.get('sale_price',0)):,.2f}</div>", unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.divider()
-    st.subheader("📋 Additional Details")
+    st.markdown("""
+    <div style='background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); 
+                padding: 20px; border-radius: 15px; margin: 10px 0; color: #2d3748; box-shadow: 0 4px 15px rgba(0,0,0,0.1);'>
+        <h3 style='color: #2d3748; margin-bottom: 15px;'>📋 Additional Details</h3>
+    """, unsafe_allow_html=True)
+    
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.write(f"**School District:** {data.get('school_district','N/A')}")
-        st.write(f"**Zoning:** {data.get('zoning','N/A')}")
-        st.write(f"**Neighborhood Code:** {data.get('ngh_code','N/A')}")
+        st.markdown(f"""
+        <div style='color: #2d3748; margin-bottom: 8px;'><strong>School District:</strong> {data.get('school_district','N/A')}</div>
+        <div style='color: #2d3748; margin-bottom: 8px;'><strong>Zoning:</strong> {data.get('zoning','N/A')}</div>
+        <div style='color: #2d3748;'><strong>Neighborhood Code:</strong> {data.get('ngh_code','N/A')}</div>
+        """, unsafe_allow_html=True)
     with col2:
-        st.write(f"**Census Tract:** {data.get('census_tract','N/A')}")
-        st.write(f"**Census Block:** {data.get('census_block','N/A')}")
-        st.write(f"**USPS Type:** {data.get('usps_residential','N/A')}")
+        st.markdown(f"""
+        <div style='color: #2d3748; margin-bottom: 8px;'><strong>Census Tract:</strong> {data.get('census_tract','N/A')}</div>
+        <div style='color: #2d3748; margin-bottom: 8px;'><strong>Census Block:</strong> {data.get('census_block','N/A')}</div>
+        <div style='color: #2d3748;'><strong>USPS Type:</strong> {data.get('usps_residential','N/A')}</div>
+        """, unsafe_allow_html=True)
     with col3:
-        st.write(f"**Elevation:** {data.get('elevation','N/A')} ft")
-        st.write(f"**Last Updated:** {data.get('last_updated','N/A')}")
+        st.markdown(f"""
+        <div style='color: #2d3748; margin-bottom: 8px;'><strong>Elevation:</strong> {data.get('elevation','N/A')} ft</div>
+        <div style='color: #2d3748;'><strong>Last Updated:</strong> {data.get('last_updated','N/A')}</div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if data.get('land_cover'):
         st.divider()
