@@ -83,6 +83,27 @@ hide_streamlit_style = """
         border-radius: 10px;
         margin: 10px 0;
     }
+    
+    /* Premium link styling */
+    .premium-link {
+        background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+        padding: 15px 20px;
+        border-radius: 10px;
+        margin: 20px 0;
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(255,107,53,0.3);
+    }
+    
+    .premium-link a {
+        color: white !important;
+        text-decoration: none !important;
+        font-weight: bold;
+        font-size: 16px;
+    }
+    
+    .premium-link a:hover {
+        text-decoration: underline !important;
+    }
 </style>
 """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
@@ -206,7 +227,8 @@ def fetch_ohio_property_data_reportallusa(parcel_id, county_name=None):
         if not client_key:
             return {
                 "status": "ERROR", 
-                "message": "ReportAllUSA client key not configured. Please set client key in [reportallusa] section of secrets."
+                "message": "ReportAllUSA client key not configured. Please set client key in [reportallusa] section of secrets.",
+                "raw_response": None
             }
 
         base_url = PROPERTY_API_CONFIG["REPORTALLUSA_BASE_URL"]
@@ -232,48 +254,57 @@ def fetch_ohio_property_data_reportallusa(parcel_id, county_name=None):
                     "results": data.get('results', []),
                     "api_source": "ReportAllUSA - Ohio Statewide",
                     "total_records": data.get('count', 0),
-                    "query_info": data.get('query', '')
+                    "query_info": data.get('query', ''),
+                    "raw_response": data  # Include raw JSON response
                 }
             else:
                 return {
                     "status": "NOT_FOUND",
-                    "message": f"No property found with parcel ID '{parcel_id}' in Ohio."
+                    "message": f"No property found with parcel ID '{parcel_id}' in Ohio.",
+                    "raw_response": data
                 }
         elif response.status_code == 401:
             return {
                 "status": "ERROR", 
-                "message": "API authentication failed. Please check your ReportAllUSA client key."
+                "message": "API authentication failed. Please check your ReportAllUSA client key.",
+                "raw_response": None
             }
         elif response.status_code == 429:
             return {
                 "status": "ERROR", 
-                "message": "API rate limit exceeded. Please try again later."
+                "message": "API rate limit exceeded. Please try again later.",
+                "raw_response": None
             }
         else:
             return {
                 "status": "ERROR", 
-                "message": f"API returned status code: {response.status_code}. Response: {response.text[:200]}"
+                "message": f"API returned status code: {response.status_code}. Response: {response.text[:200]}",
+                "raw_response": None
             }
             
     except requests.exceptions.Timeout:
         return {
             "status": "ERROR", 
-            "message": "Request timed out. The ReportAllUSA API may be experiencing delays."
+            "message": "Request timed out. The ReportAllUSA API may be experiencing delays.",
+            "raw_response": None
         }
     except requests.exceptions.ConnectionError:
         return {
             "status": "ERROR", 
-            "message": "Connection error. Unable to reach ReportAllUSA API."
+            "message": "Connection error. Unable to reach ReportAllUSA API.",
+            "raw_response": None
         }
     except requests.exceptions.RequestException as e:
         return {
             "status": "ERROR", 
-            "message": f"Request error: {str(e)}"
+            "message": f"Request error: {str(e)}",
+            "raw_response": None
         }
     except Exception as e:
         return {
             "status": "ERROR", 
-            "message": f"Unexpected error: {str(e)}"
+            "message": f"Unexpected error: {str(e)}",
+            "raw_response": None
         }
 
 def search_multiple_parcels_ohio(parcel_ids, county_name=None):
@@ -285,7 +316,8 @@ def search_multiple_parcels_ohio(parcel_ids, county_name=None):
         if not client_key:
             return {
                 "status": "ERROR", 
-                "message": "ReportAllUSA client key not configured."
+                "message": "ReportAllUSA client key not configured.",
+                "raw_response": None
             }
 
         base_url = PROPERTY_API_CONFIG["REPORTALLUSA_BASE_URL"]
@@ -313,23 +345,27 @@ def search_multiple_parcels_ohio(parcel_ids, county_name=None):
                     "results": data.get('results', []),
                     "api_source": "ReportAllUSA - Ohio Statewide",
                     "total_records": data.get('count', 0),
-                    "query_info": data.get('query', '')
+                    "query_info": data.get('query', ''),
+                    "raw_response": data  # Include raw JSON response
                 }
             else:
                 return {
                     "status": "NOT_FOUND",
-                    "message": "No properties found for the provided parcel IDs in Ohio."
+                    "message": "No properties found for the provided parcel IDs in Ohio.",
+                    "raw_response": data
                 }
         else:
             return {
                 "status": "ERROR", 
-                "message": f"API error: {response.status_code}"
+                "message": f"API error: {response.status_code}",
+                "raw_response": None
             }
             
     except Exception as e:
         return {
             "status": "ERROR", 
-            "message": f"Multiple parcel search error: {str(e)}"
+            "message": f"Multiple parcel search error: {str(e)}",
+            "raw_response": None
         }
 
 def search_ohio_property_comprehensive(search_term, search_type="parcel", county_name=None):
@@ -349,151 +385,49 @@ def search_ohio_property_comprehensive(search_term, search_type="parcel", county
         # For address searches, we'll still use parcel search but inform user
         return {
             "status": "ERROR",
-            "message": "Address search not directly supported. Please use parcel ID search for Ohio properties."
+            "message": "Address search not directly supported. Please use parcel ID search for Ohio properties.",
+            "raw_response": None
         }
 
 # --------------------------
-# Session state
-# --------------------------
-if 'usage_count' not in st.session_state:
-    st.session_state.usage_count = 0
-if 'search_history' not in st.session_state:
-    st.session_state.search_history = []
-if 'cached_results' not in st.session_state:
-    st.session_state.cached_results = {}
-
-# Maximum usage limit
-MAX_SEARCHES = 10
-
-# --------------------------
-# Sidebar: Enhanced Ohio counties display and usage stats
-# --------------------------
-with st.sidebar:
-    st.header("📈 Usage Statistics")
-    usage_remaining = MAX_SEARCHES - st.session_state.usage_count
-    if usage_remaining > 0:
-        st.metric("Searches Remaining", usage_remaining)
-        progress_value = st.session_state.usage_count / MAX_SEARCHES
-        st.progress(progress_value)
-        
-        # Color-coded warning
-        if usage_remaining <= 2:
-            st.error(f"⚠️ Only {usage_remaining} searches left!")
-        elif usage_remaining <= 5:
-            st.warning(f"⚠️ {usage_remaining} searches remaining")
-        else:
-            st.success(f"✅ {usage_remaining} searches available")
-    else:
-        st.error("❌ Usage limit reached (10 searches)")
-        st.markdown("**Refresh the page to reset your search count**")
-
-    # Complete Ohio Counties Information
-    st.divider()
-    st.subheader("🏛️ All Ohio Counties (88 Total)")
-    
-    # Group counties by region for better organization
-    regions = {
-        "Northeast Ohio": ['18', '28', '43', '47', '50', '67', '76', '77', '78'],
-        "Central Ohio": ['21', '23', '25', '45', '49', '65', '80'],
-        "Southwest Ohio": ['09', '13', '31', '68', '83'],
-        "Southeast Ohio": ['05', '07', '27', '30', '40', '44', '56', '58', '60', '61', '71', '73', '84'],
-        "Northwest Ohio": ['02', '20', '22', '26', '32', '35', '39', '48', '62', '69', '72', '74', '86', '87'],
-        "Other Counties": [code for code in OHIO_COUNTIES.keys() if code not in 
-                          ['18', '28', '43', '47', '50', '67', '76', '77', '78', '21', '23', '25', '45', '49', '65', '80',
-                           '09', '13', '31', '68', '83', '05', '07', '27', '30', '40', '44', '56', '58', '60', '61', '71', '73', '84',
-                           '02', '20', '22', '26', '32', '35', '39', '48', '62', '69', '72', '74', '86', '87']]
-    }
-    
-    with st.expander("View All 88 Counties by Region"):
-        for region, county_codes in regions.items():
-            st.markdown(f"**{region}:**")
-            for code in county_codes:
-                county_info = OHIO_COUNTIES[code]
-                st.write(f"• {county_info['name']} ({code}) - {county_info['seat']}")
-            st.write("")
-
-    if st.session_state.search_history:
-        st.divider()
-        st.subheader("🔍 Recent Searches")
-        for i, search in enumerate(st.session_state.search_history[-8:]):
-            st.text(f"{i+1}. {search}")
-    
-    # Reset button
-    st.divider()
-    if st.button("🔄 Reset Search Count", type="secondary"):
-        st.session_state.usage_count = 0
-        st.session_state.search_history = []
-        st.session_state.cached_results = {}
-        st.rerun()
-
-    # Enhanced API Status
-    st.divider()
-    st.subheader("🔌 ReportAllUSA API Status")
-    
-    if PROPERTY_API_CONFIG["REPORTALLUSA_CLIENT_KEY"]:
-        st.success("✅ ReportAllUSA API Connected")
-        st.caption("Ohio statewide property data enabled")
-    else:
-        st.error("❌ ReportAllUSA API Key Missing")
-        st.caption("Set client key in [reportallusa] section of secrets")
-    
-    st.info("🌟 **State-wide Coverage**: Search all of Ohio with one API")
-
-# --------------------------
-# Enhanced Property Cards for Ohio Data
+# Enhanced Property Display Functions
 # --------------------------
 def create_enhanced_ohio_property_cards(data):
-    """Create enhanced property cards with comprehensive Ohio property data"""
+    """Create enhanced property display cards for Ohio property data"""
     
-    # Enhanced Property Overview section
-    st.markdown("""
-    <div style='background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
-                padding: 25px; border-radius: 20px; margin: 15px 0; color: white; 
-                box-shadow: 0 8px 25px rgba(30,60,114,0.3);'>
-        <h2 style='color: white; margin-bottom: 20px; text-align: center; font-size: 28px;'>🏠 Ohio Property Details - Comprehensive Data</h2>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Create four enhanced metric columns
+    # Main property overview with gradient cards
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        # Location Info - Ohio Blue gradient
-        county_name = data.get('county', data.get('county_name', 'N/A'))
-        parcel_id = data.get('parcel_id', data.get('parcelid', data.get('parcel_number', 'N/A')))
+        # Market Value - Blue gradient
+        market_value = data.get('market_value', data.get('assessed_value', data.get('appraised_value', 0)))
+        try:
+            market_value = float(market_value) if market_value else 0
+        except:
+            market_value = 0
         
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); 
                     padding: 20px; border-radius: 15px; margin: 10px 5px; color: white; 
                     box-shadow: 0 6px 20px rgba(33,150,243,0.3); text-align: center;'>
-            <h4 style='color: white; margin-bottom: 15px;'>📍 Location</h4>
-            <div style='margin-bottom: 12px;'><strong>Parcel ID:</strong><br><span style='font-size: 16px; font-weight: bold;'>{parcel_id}</span></div>
-            <div style='margin-bottom: 12px;'><strong>County:</strong><br><span style='font-size: 14px;'>{county_name}</span></div>
-            <div><strong>State:</strong><br><span style='font-size: 14px;'>Ohio</span></div>
+            <h4 style='color: white; margin-bottom: 15px;'>💰 Market Value</h4>
+            <div style='font-size: 24px; font-weight: bold; margin-bottom: 10px;'>${market_value:,.0f}</div>
+            <div style='font-size: 12px; opacity: 0.9;'>Assessed Value</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        # Market Values - Green gradient
-        market_value = data.get('market_value', data.get('assessed_value', data.get('value', 0)))
-        land_value = data.get('land_value', data.get('lot_value', 0))
-        building_value = data.get('building_value', data.get('improvement_value', 0))
-        
-        try:
-            market_value = float(market_value) if market_value else 0
-            land_value = float(land_value) if land_value else 0
-            building_value = float(building_value) if building_value else 0
-        except:
-            market_value = land_value = building_value = 0
+        # Parcel Information - Green gradient
+        parcel_id = data.get('parcel_id', data.get('parcelid', data.get('parcel_number', 'N/A')))
+        county_name = data.get('county', data.get('county_name', 'N/A'))
         
         st.markdown(f"""
         <div style='background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%); 
                     padding: 20px; border-radius: 15px; margin: 10px 5px; color: white; 
                     box-shadow: 0 6px 20px rgba(76,175,80,0.3); text-align: center;'>
-            <h4 style='color: white; margin-bottom: 15px;'>💰 Values</h4>
-            <div style='margin-bottom: 12px;'><strong>Market Value:</strong><br><span style='font-size: 16px; font-weight: bold;'>${market_value:,.0f}</span></div>
-            <div style='margin-bottom: 12px;'><strong>Land Value:</strong><br><span style='font-size: 14px;'>${land_value:,.0f}</span></div>
-            <div><strong>Building Value:</strong><br><span style='font-size: 14px;'>${building_value:,.0f}</span></div>
+            <h4 style='color: white; margin-bottom: 15px;'>📋 Parcel Info</h4>
+            <div style='margin-bottom: 12px;'><strong>Parcel ID:</strong><br><span style='font-size: 14px; font-weight: bold;'>{parcel_id}</span></div>
+            <div><strong>County:</strong><br><span style='font-size: 14px;'>{county_name}</span></div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -661,6 +595,68 @@ def create_enhanced_ohio_pdf(data):
     return buffer
 
 # --------------------------
+# Session state
+# --------------------------
+if 'usage_count' not in st.session_state:
+    st.session_state.usage_count = 0
+if 'search_history' not in st.session_state:
+    st.session_state.search_history = []
+if 'cached_results' not in st.session_state:
+    st.session_state.cached_results = {}
+
+# Maximum usage limit
+MAX_SEARCHES = 10
+
+# --------------------------
+# Sidebar: Enhanced Ohio counties display and usage stats
+# --------------------------
+with st.sidebar:
+    st.header("📈 Usage Statistics")
+    usage_remaining = MAX_SEARCHES - st.session_state.usage_count
+    if usage_remaining > 0:
+        st.metric("Searches Remaining", usage_remaining)
+        progress_value = st.session_state.usage_count / MAX_SEARCHES
+        st.progress(progress_value)
+        
+        # Color-coded warning
+        if usage_remaining <= 2:
+            st.error(f"⚠️ Only {usage_remaining} searches left!")
+        elif usage_remaining <= 5:
+            st.warning(f"⚠️ {usage_remaining} searches remaining")
+        else:
+            st.success(f"✅ {usage_remaining} searches available")
+    else:
+        st.error("❌ Usage limit reached (10 searches)")
+        st.markdown("**Refresh the page to reset your search count**")
+    
+    # Premium subscription link
+    st.markdown("""
+    <div class='premium-link'>
+        <h4 style='color: white; margin-bottom: 10px;'>🚀 Get Premium Access</h4>
+        <a href='https://aipropiq.com/product/monthsubscription/' target='_blank'>
+            Upgrade to Premium for Unlimited Searches
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Recent searches
+    if st.session_state.search_history:
+        st.subheader("🕒 Recent Searches")
+        for search in st.session_state.search_history[-5:]:  # Show last 5 searches
+            st.text(search)
+    
+    st.divider()
+    
+    # Reset usage button
+    if st.button("🔄 Reset Usage Count", help="Reset your search count to start over"):
+        st.session_state.usage_count = 0
+        st.session_state.search_history = []
+        st.session_state.cached_results = {}
+        st.rerun()
+
+# --------------------------
 # Main App UI - Enhanced
 # --------------------------
 st.title("🏠 Ohio Property Tax Lookup Pro - All 88 Counties")
@@ -669,268 +665,170 @@ st.markdown("**Comprehensive Ohio property research with real data integration**
 # Enhanced region information
 st.info("🌟 **Now covering ALL 88 Ohio counties** with real property data from ReportAllUSA API for complete statewide coverage.")
 
+# Premium subscription banner
+st.markdown("""
+<div class='premium-link'>
+    <h4 style='color: white; margin-bottom: 10px;'>🚀 Need More Searches?</h4>
+    <a href='https://aipropiq.com/product/monthsubscription/' target='_blank'>
+        Get Premium Access for Unlimited Property Searches
+    </a>
+</div>
+""", unsafe_allow_html=True)
+
 # Check usage limit
 if st.session_state.usage_count >= MAX_SEARCHES:
     st.error("❌ Maximum usage reached (10 searches). Please refresh the page to reset.")
     st.info("💡 **Tip:** Refresh the page or use the reset button in the sidebar to start over.")
-    st.stop()
-
-# Enhanced search tabs
-tab1, tab2, tab3 = st.tabs(["🔍 Search by Parcel ID", "📍 Search by Address", "🗺️ County Explorer"])
-
-with tab1:
-    st.subheader("🔍 Ohio State-wide Property Search by Parcel ID")
-    st.markdown("*Search any property across all of Ohio using parcel ID - no county selection needed!*")
-    
-    col1, col2, col3 = st.columns([4, 2, 1])
-    with col1:
-        parcel_id = st.text_input(
-            "Enter Ohio Parcel ID", 
-            placeholder="e.g., 44327012 or multiple: 44327012;44327010;44327013", 
-            help="Enter single parcel ID or multiple IDs separated by semicolons. Searches entire state of Ohio automatically."
-        )
-    with col2:
-        county_filter = st.selectbox(
-            "County Filter (Optional)",
-            ["All of Ohio (Recommended)"] + [f"{info['name']}" for info in OHIO_COUNTIES.values()],
-            help="Leave as 'All of Ohio' for best results, or select specific county to narrow search"
-        )
-    with col3:
-        search_button = st.button(
-            "🔍 Search Ohio", 
-            type="primary", 
-            disabled=(st.session_state.usage_count >= MAX_SEARCHES)
-        )
-
-    # Enhanced parcel ID search functionality
-    if search_button and parcel_id:
-        if st.session_state.usage_count >= MAX_SEARCHES:
-            st.error("Usage limit reached!")
-        elif not parcel_id.strip():
-            st.error("Please enter a valid Parcel ID")
-        else:
-            with st.spinner("Searching Ohio state-wide property database..."):
-                try:
-                    # Determine county name if selected
-                    county_name = None
-                    if county_filter != "All of Ohio (Recommended)":
-                        county_name = county_filter
-                    
-                    # Use comprehensive search function
-                    api_response = search_ohio_property_comprehensive(parcel_id, "parcel", county_name)
-
-                    if api_response.get('status') == "OK" and api_response.get('results'):
-                        # Update usage count and history
-                        st.session_state.usage_count += 1
-                        timestamp = datetime.now().strftime('%H:%M:%S')
-                        search_scope = f" - {county_filter}" if county_filter != "All of Ohio (Recommended)" else " - Statewide"
-                        st.session_state.search_history.append(f"{parcel_id}{search_scope} - {timestamp}")
-                        
-                        # Success message
-                        total_found = api_response.get('total_records', len(api_response.get('results', [])))
-                        st.success(f"✅ Found {total_found} Ohio property record(s)! (Search {st.session_state.usage_count}/{MAX_SEARCHES}) - Source: {api_response.get('api_source', 'ReportAllUSA')}")
-                        
-                        # Display results
-                        results = api_response['results']
-                        if len(results) == 1:
-                            create_enhanced_ohio_property_cards(results[0])
-                        else:
-                            st.info(f"Found {len(results)} matching properties:")
-                            for i, property_data in enumerate(results[:5]):  # Show top 5 results
-                                county_name = property_data.get('county', property_data.get('county_name', 'N/A'))
-                                address = property_data.get('address', property_data.get('property_address', 'N/A'))
-                                with st.expander(f"Property {i+1}: {address} - {county_name}"):
-                                    create_enhanced_ohio_property_cards(property_data)
-
-                        # Enhanced export options
-                        st.divider()
-                        st.subheader("📥 Export Options")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            pdf_buffer = create_enhanced_ohio_pdf(results[0])
-                            st.download_button(
-                                "📄 Download Ohio Property PDF Report", 
-                                pdf_buffer.getvalue(),
-                                file_name=f"ohio_property_report_{parcel_id.replace(';', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", 
-                                mime="application/pdf"
-                            )
-                        with col2:
-                            json_str = json.dumps(results[0] if len(results) == 1 else results, indent=2)
-                            st.download_button(
-                                "📋 Download Complete JSON Data", 
-                                json_str,
-                                file_name=f"ohio_property_data_{parcel_id.replace(';', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
-                                mime="application/json"
-                            )
-                            
-                    else:
-                        error_msg = api_response.get('message', 'Property not found in Ohio records')
-                        st.error(f"❌ {error_msg}")
-                        st.info("💡 Please verify the Parcel ID format and try again. You can search multiple parcel IDs by separating them with semicolons (;).")
-                        # Still increment usage count for failed searches
-                        st.session_state.usage_count += 1
-                        
-                except Exception as e:
-                    st.error(f"❌ Unexpected error occurred: {str(e)}")
-                    st.info("💡 Please try again or contact support")
-                    # Increment usage count for errors too
-                    st.session_state.usage_count += 1
-
-with tab2:
-    st.subheader("📍 Address to Parcel ID Lookup")
-    st.markdown("*Use this section to find parcel IDs for address-based searches*")
-    
-    st.info("ℹ️ **Note**: The ReportAllUSA API searches by parcel ID. Use county auditor websites below to find parcel IDs for specific addresses, then use the Parcel ID search above.")
-    
-    # Quick links to major Ohio county auditor websites
-    st.subheader("🔗 Ohio County Auditor Property Search Links")
-    
-    major_counties = {
-        "Cuyahoga County (Cleveland)": "https://cuyahogacounty.gov/fiscal-officer/departments/real-property/real-property-information",
-        "Franklin County (Columbus)": "https://franklincountyauditor.com/",
-        "Hamilton County (Cincinnati)": "https://wedge.hcauditor.org/",
-        "Summit County (Akron)": "https://www.summitoh.net/",
-        "Lucas County (Toledo)": "https://www.co.lucas.oh.us/377/AREIS-Information",
-        "Butler County": "https://www.bcauditor.org/",
-        "Stark County (Canton)": "https://www.starkcountyohio.gov/auditor",
-        "Lorain County": "https://www.loraincounty.us/auditor",
-        "Mahoning County (Youngstown)": "https://www.mahoningcountyoh.gov/",
-        "Montgomery County (Dayton)": "https://www.mcauditor.org/"
-    }
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Major Counties:**")
-        for county, url in list(major_counties.items())[:5]:
-            st.markdown(f"• [{county}]({url})")
-    
-    with col2:
-        st.markdown("**Additional Counties:**")
-        for county, url in list(major_counties.items())[5:]:
-            st.markdown(f"• [{county}]({url})")
-    
-    st.markdown("---")
-    st.markdown("**💡 Tip**: Once you find the parcel ID on a county website, copy it and use the 'Search by Parcel ID' tab above for comprehensive property data.")
-
-with tab3:
-    st.subheader("🗺️ Ohio State-wide Property Data")
-    st.markdown("*Comprehensive coverage across all 88 Ohio counties*")
-    
-    # Ohio statistics
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Total Counties", "88", help="All Ohio counties supported")
-    with col2:
-        st.metric("Data Source", "ReportAllUSA", help="Professional property data API")
-    with col3:
-        st.metric("Coverage", "Statewide", help="Complete Ohio coverage")
-    with col4:
-        st.metric("Search Type", "Parcel ID", help="Primary search method")
-    
-    # Sample parcel ID formats
-    st.subheader("📋 Sample Ohio Parcel ID Formats")
     st.markdown("""
-    Different Ohio counties use different parcel ID formats. Here are some examples:
-    
-    - **Cuyahoga County**: 44327012, 44327010, 44327013
-    - **Franklin County**: 010-123456-00, 010-123457-00
-    - **Hamilton County**: 123-0001-0001-00, 123-0001-0002-00
-    - **Summit County**: 12-34567, 12-34568
-    - **Lucas County**: 12-34567-890, 12-34568-890
-    
-    **Multiple Search**: You can search multiple parcels at once by separating them with semicolons:
-    `44327012;44327010;44327013`
-    """)
-    
-    # Ohio regions
-    st.subheader("🗺️ Ohio Regions Covered")
-    regions_info = {
-        "Northeast Ohio": "Cleveland, Akron, Youngstown areas - Industrial and urban properties",
-        "Central Ohio": "Columbus area - State capital region with diverse property types", 
-        "Southwest Ohio": "Cincinnati, Dayton areas - Major metropolitan regions",
-        "Southeast Ohio": "Appalachian region - Rural and small town properties",
-        "Northwest Ohio": "Toledo area - Agricultural and industrial properties"
-    }
-    
-    for region, description in regions_info.items():
-        st.markdown(f"**{region}**: {description}")
-
-# Enhanced API Configuration Help
-st.divider()
-with st.expander("⚙️ ReportAllUSA API Configuration & Setup"):
-    st.markdown("""
-    ### Setting up ReportAllUSA API for Ohio Property Data
-    
-    This application uses the **ReportAllUSA API** for comprehensive Ohio property data access.
-    
-    #### 🔑 API Configuration
-    To enable real property data, add your ReportAllUSA client key to Streamlit secrets:
-    
-    ```toml
-    # In your Streamlit secrets.toml file
-    [reportallusa]
-    client = "kcuk4HJnjt"
-    ```
-    
-    #### 🌐 API Capabilities
-    - **Coverage**: All 88 Ohio counties
-    - **Search Method**: Parcel ID based searches
-    - **Multiple Parcels**: Search multiple properties at once
-    - **Building Footprints**: Includes building polygon data when available
-    - **Real-time Data**: Live property information from official sources
-    
-    #### 📊 API Response Format
-    The API returns comprehensive property data including:
-    - Property identification and location details
-    - Assessment and valuation information  
-    - Tax records and payment history
-    - Property characteristics and building details
-    - Owner information and mailing addresses
-    - Geographic coordinates and boundaries
-    
-    #### 🔍 Search Examples
-    **Single Parcel**: `44327012`
-    **Multiple Parcels**: `44327012;44327010;44327013`
-    **County-Specific**: Use county filter for targeted searches
-    **State-wide**: Leave county as "All of Ohio" for best coverage
-    
-    #### 📈 Usage Guidelines
-    - Each search counts toward your session limit (10 searches)
-    - Multiple parcel searches count as one search
-    - Failed searches still count toward the limit
-    - Refresh the page to reset your search count
-    
-    #### 🆘 Troubleshooting
-    - **"API key not configured"**: Add `[reportallusa]` section with `client = "kcuk4HJnjt"` to secrets
-    - **"Property not found"**: Verify parcel ID format for the specific county
-    - **"Rate limit exceeded"**: Wait a moment before trying again
-    - **Multiple formats**: Try different parcel ID formats if first attempt fails
-    
-    #### 🔗 Getting API Access
-    Visit [ReportAllUSA](https://reportallusa.com/) to sign up for API access and obtain your client key.
-    """)
-
-# Enhanced usage information
-st.divider()
-remaining = MAX_SEARCHES - st.session_state.usage_count
-if remaining <= 2 and remaining > 0:
-    st.warning(f"⚠️ {remaining} searches remaining in this session!")
-elif remaining == 0:
-    st.error("❌ No searches remaining. Refresh the page to reset.")
-else:
-    st.success(f"✅ {remaining} searches available - Ohio state-wide property data ready!")
-
-# Enhanced footer
-st.markdown(
-    f"""
-    <div class="custom-footer">
-        Ohio Property Tax Lookup Pro - ReportAllUSA Edition | State-wide Coverage | Searches: {st.session_state.usage_count}/{MAX_SEARCHES} | 
-        Real Ohio Property Data | Session: {datetime.now().strftime('%Y-%m-%d')} | 
-        <a href="https://reportallusa.com/" target="_blank" style="color: #ff6b6b; text-decoration: none;">
-            🌟 Powered by ReportAllUSA
+    <div class='premium-link'>
+        <h4 style='color: white; margin-bottom: 10px;'>🚀 Want Unlimited Access?</h4>
+        <a href='https://aipropiq.com/product/monthsubscription/' target='_blank'>
+            Upgrade to Premium - No Search Limits!
         </a>
     </div>
-    """, 
-    unsafe_allow_html=True
-)
+    """, unsafe_allow_html=True)
+    st.stop()
+
+# Main search interface (removed tabs, keeping only parcel search)
+st.subheader("🔍 Ohio State-wide Property Search by Parcel ID")
+st.markdown("*Search any property across all of Ohio using parcel ID - no county selection needed!*")
+
+col1, col2, col3 = st.columns([4, 2, 1])
+with col1:
+    parcel_id = st.text_input(
+        "Enter Ohio Parcel ID", 
+        placeholder="e.g., 44327012 or multiple: 44327012;44327010;44327013", 
+        help="Enter single parcel ID or multiple IDs separated by semicolons. Searches entire state of Ohio automatically."
+    )
+with col2:
+    county_filter = st.selectbox(
+        "County Filter (Optional)",
+        ["All of Ohio (Recommended)"] + [f"{info['name']}" for info in OHIO_COUNTIES.values()],
+        help="Leave as 'All of Ohio' for best results, or select specific county to narrow search"
+    )
+with col3:
+    search_button = st.button(
+        "🔍 Search Ohio", 
+        type="primary", 
+        disabled=(st.session_state.usage_count >= MAX_SEARCHES)
+    )
+
+# Enhanced parcel ID search functionality
+if search_button and parcel_id:
+    if st.session_state.usage_count >= MAX_SEARCHES:
+        st.error("Usage limit reached!")
+    elif not parcel_id.strip():
+        st.error("Please enter a valid Parcel ID")
+    else:
+        with st.spinner("Searching Ohio state-wide property database..."):
+            try:
+                # Determine county name if selected
+                county_name = None
+                if county_filter != "All of Ohio (Recommended)":
+                    county_name = county_filter
+                
+                # Use comprehensive search function
+                api_response = search_ohio_property_comprehensive(parcel_id, "parcel", county_name)
+
+                if api_response.get('status') == "OK" and api_response.get('results'):
+                    # Update usage count and history
+                    st.session_state.usage_count += 1
+                    timestamp = datetime.now().strftime('%H:%M:%S')
+                    search_scope = f" - {county_filter}" if county_filter != "All of Ohio (Recommended)" else " - Statewide"
+                    st.session_state.search_history.append(f"{parcel_id}{search_scope} - {timestamp}")
+                    
+                    # Success message
+                    total_found = api_response.get('total_records', len(api_response.get('results', [])))
+                    st.success(f"✅ Found {total_found} Ohio property record(s)! (Search {st.session_state.usage_count}/{MAX_SEARCHES}) - Source: {api_response.get('api_source', 'ReportAllUSA')}")
+                    
+                    # Display results
+                    results = api_response['results']
+                    if len(results) == 1:
+                        create_enhanced_ohio_property_cards(results[0])
+                    else:
+                        st.info(f"Found {len(results)} matching properties:")
+                        for i, property_data in enumerate(results[:5]):  # Show top 5 results
+                            county_name = property_data.get('county', property_data.get('county_name', 'N/A'))
+                            address = property_data.get('address', property_data.get('property_address', 'N/A'))
+                            with st.expander(f"Property {i+1}: {address} - {county_name}"):
+                                create_enhanced_ohio_property_cards(property_data)
+
+                    # Enhanced export options with JSON Raw Response
+                    st.divider()
+                    st.subheader("📥 Export Options")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        pdf_buffer = create_enhanced_ohio_pdf(results[0])
+                        st.download_button(
+                            "📄 Download PDF Report", 
+                            pdf_buffer.getvalue(),
+                            file_name=f"ohio_property_report_{parcel_id.replace(';', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", 
+                            mime="application/pdf"
+                        )
+                    with col2:
+                        json_str = json.dumps(results[0] if len(results) == 1 else results, indent=2)
+                        st.download_button(
+                            "📋 Download Property JSON", 
+                            json_str,
+                            file_name=f"ohio_property_data_{parcel_id.replace(';', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
+                            mime="application/json"
+                        )
+                    with col3:
+                        # Raw API Response JSON
+                        if api_response.get('raw_response'):
+                            raw_json_str = json.dumps(api_response['raw_response'], indent=2)
+                            st.download_button(
+                                "🔧 Download Raw API Response", 
+                                raw_json_str,
+                                file_name=f"raw_api_response_{parcel_id.replace(';', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
+                                mime="application/json"
+                            )
+                    
+                    # Display Raw JSON Response
+                    if api_response.get('raw_response'):
+                        st.divider()
+                        st.subheader("🔧 Raw API Response")
+                        with st.expander("View Raw JSON Response from ReportAllUSA API", expanded=False):
+                            st.json(api_response['raw_response'])
+                            
+                else:
+                    error_msg = api_response.get('message', 'Property not found in Ohio records')
+                    st.error(f"❌ {error_msg}")
+                    st.info("💡 Please verify the Parcel ID format and try again. You can search multiple parcel IDs by separating them with semicolons (;).")
+                    
+                    # Show raw response even for errors if available
+                    if api_response.get('raw_response'):
+                        with st.expander("View Raw API Response", expanded=False):
+                            st.json(api_response['raw_response'])
+                    
+                    # Still increment usage count for failed searches
+                    st.session_state.usage_count += 1
+                    
+            except Exception as e:
+                st.error(f"❌ Unexpected error occurred: {str(e)}")
+                st.info("💡 Please try again or contact support")
+                # Increment usage count for errors too
+                st.session_state.usage_count += 1
+
+# Footer with premium link
+st.divider()
+st.markdown("""
+<div style='text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 10px; margin: 20px 0;'>
+    <h4>🚀 Ready for More?</h4>
+    <p>Get unlimited property searches, advanced features, and priority support with our Premium subscription.</p>
+    <div class='premium-link'>
+        <a href='https://aipropiq.com/product/monthsubscription/' target='_blank'>
+            Start Your Premium Subscription Today
+        </a>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Custom footer
+st.markdown("""
+<div class='custom-footer'>
+    <p>Ohio Property Tax Lookup Pro - Powered by ReportAllUSA API | 
+    <a href='https://aipropiq.com/product/monthsubscription/' target='_blank' style='color: #FF6B35;'>Get Premium Access</a></p>
+</div>
+""", unsafe_allow_html=True)
 
