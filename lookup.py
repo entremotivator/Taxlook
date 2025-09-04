@@ -245,20 +245,56 @@ with st.sidebar:
 # Helper: Create property cards
 # --------------------------
 def create_property_cards(data):
-    st.subheader("🏠 Property Overview")
+    # Create colorful Property Overview section
+    st.markdown("""
+    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                padding: 25px; border-radius: 20px; margin: 15px 0; color: white; 
+                box-shadow: 0 8px 25px rgba(102,126,234,0.3);'>
+        <h2 style='color: white; margin-bottom: 20px; text-align: center; font-size: 28px;'>🏠 Property Overview</h2>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Create three colorful metric columns
     col1, col2, col3 = st.columns(3)
+    
     with col1:
-        st.metric("Parcel ID", data.get('parcel_id','N/A'))
-        st.metric("County", data.get('county_name','N/A'))
-        st.metric("Municipality", data.get('muni_name','N/A'))
+        # Location Info - Blue/Teal gradient
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
+                    padding: 20px; border-radius: 15px; margin: 10px 5px; color: white; 
+                    box-shadow: 0 6px 20px rgba(79,172,254,0.3); text-align: center;'>
+            <h4 style='color: white; margin-bottom: 15px;'>📍 Location</h4>
+            <div style='margin-bottom: 12px;'><strong>Parcel ID:</strong><br><span style='font-size: 18px; font-weight: bold;'>{data.get('parcel_id','N/A')}</span></div>
+            <div style='margin-bottom: 12px;'><strong>County:</strong><br><span style='font-size: 16px;'>{data.get('county_name','N/A')}</span></div>
+            <div><strong>Municipality:</strong><br><span style='font-size: 16px;'>{data.get('muni_name','N/A')}</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col2:
-        st.metric("Market Value (Total)", f"${float(data.get('mkt_val_tot',0)):,.2f}")
-        st.metric("Market Value (Land)", f"${float(data.get('mkt_val_land',0)):,.2f}")
-        st.metric("Market Value (Building)", f"${float(data.get('mkt_val_bldg',0)):,.2f}")
+        # Market Values - Green/Emerald gradient
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); 
+                    padding: 20px; border-radius: 15px; margin: 10px 5px; color: white; 
+                    box-shadow: 0 6px 20px rgba(67,233,123,0.3); text-align: center;'>
+            <h4 style='color: white; margin-bottom: 15px;'>💰 Market Values</h4>
+            <div style='margin-bottom: 12px;'><strong>Total Value:</strong><br><span style='font-size: 18px; font-weight: bold;'>${float(data.get('mkt_val_tot',0)):,.0f}</span></div>
+            <div style='margin-bottom: 12px;'><strong>Land Value:</strong><br><span style='font-size: 16px;'>${float(data.get('mkt_val_land',0)):,.0f}</span></div>
+            <div><strong>Building Value:</strong><br><span style='font-size: 16px;'>${float(data.get('mkt_val_bldg',0)):,.0f}</span></div>
+        </div>
+        """, unsafe_allow_html=True)
+    
     with col3:
-        st.metric("Acreage", data.get('acreage','N/A'))
-        st.metric("Land Use", data.get('land_use_class','N/A'))
-        st.metric("Buildings", data.get('buildings','N/A'))
+        # Property Details - Orange/Pink gradient
+        st.markdown(f"""
+        <div style='background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); 
+                    padding: 20px; border-radius: 15px; margin: 10px 5px; color: white; 
+                    box-shadow: 0 6px 20px rgba(250,112,154,0.3); text-align: center;'>
+            <h4 style='color: white; margin-bottom: 15px;'>🏘️ Property Info</h4>
+            <div style='margin-bottom: 12px;'><strong>Acreage:</strong><br><span style='font-size: 18px; font-weight: bold;'>{data.get('acreage','N/A')}</span></div>
+            <div style='margin-bottom: 12px;'><strong>Land Use:</strong><br><span style='font-size: 16px;'>{data.get('land_use_class','N/A')}</span></div>
+            <div><strong>Buildings:</strong><br><span style='font-size: 16px;'>{data.get('buildings','N/A')}</span></div>
+        </div>
+        """, unsafe_allow_html=True)
 
     st.divider()
     st.markdown("""
