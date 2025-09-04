@@ -185,8 +185,11 @@ OHIO_COUNTIES = {
 # Real Property Data API Configuration - ReportAllUSA
 # --------------------------
 # Configure with ReportAllUSA API credentials
+# Expected secrets format:
+# [reportallusa]
+# client = "kcuk4HJnjt"
 PROPERTY_API_CONFIG = {
-    "REPORTALLUSA_CLIENT_KEY": st.secrets.get("REPORTALLUSA_CLIENT_KEY", ""),
+    "REPORTALLUSA_CLIENT_KEY": st.secrets.get("reportallusa", {}).get("client", ""),
     "REPORTALLUSA_BASE_URL": "https://reportallusa.com/api/parcels",
     "API_VERSION": "9"
 }
@@ -203,7 +206,7 @@ def fetch_ohio_property_data_reportallusa(parcel_id, county_name=None):
         if not client_key:
             return {
                 "status": "ERROR", 
-                "message": "ReportAllUSA client key not configured. Please set REPORTALLUSA_CLIENT_KEY in secrets."
+                "message": "ReportAllUSA client key not configured. Please set client key in [reportallusa] section of secrets."
             }
 
         base_url = PROPERTY_API_CONFIG["REPORTALLUSA_BASE_URL"]
@@ -359,8 +362,8 @@ if 'search_history' not in st.session_state:
 if 'cached_results' not in st.session_state:
     st.session_state.cached_results = {}
 
-# Increased usage limit for comprehensive service
-MAX_SEARCHES = 25
+# Maximum usage limit
+MAX_SEARCHES = 10
 
 # --------------------------
 # Sidebar: Enhanced Ohio counties display and usage stats
@@ -374,14 +377,14 @@ with st.sidebar:
         st.progress(progress_value)
         
         # Color-coded warning
-        if usage_remaining <= 3:
+        if usage_remaining <= 2:
             st.error(f"⚠️ Only {usage_remaining} searches left!")
-        elif usage_remaining <= 8:
+        elif usage_remaining <= 5:
             st.warning(f"⚠️ {usage_remaining} searches remaining")
         else:
             st.success(f"✅ {usage_remaining} searches available")
     else:
-        st.error("❌ Usage limit reached (25 searches)")
+        st.error("❌ Usage limit reached (10 searches)")
         st.markdown("**Refresh the page to reset your search count**")
 
     # Complete Ohio Counties Information
@@ -432,7 +435,7 @@ with st.sidebar:
         st.caption("Ohio statewide property data enabled")
     else:
         st.error("❌ ReportAllUSA API Key Missing")
-        st.caption("Set REPORTALLUSA_CLIENT_KEY in secrets")
+        st.caption("Set client key in [reportallusa] section of secrets")
     
     st.info("🌟 **State-wide Coverage**: Search all of Ohio with one API")
 
@@ -616,7 +619,7 @@ def create_enhanced_ohio_pdf(data):
         textColor=colors.darkblue,
         alignment=1  # Center alignment
     )
-    story.append(Paragraph("Ohio Property Tax Report - Comprehensive Data", title_style))
+    story.append(Paragraph("Ohio Property Tax Report - ReportAllUSA Data", title_style))
     story.append(Spacer(1, 20))
 
     # Property overview table with enhanced data
@@ -650,8 +653,8 @@ def create_enhanced_ohio_pdf(data):
     # Add data source information
     story.append(Paragraph("Data Source Information", styles['Heading2']))
     story.append(Paragraph(f"Report generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-    story.append(Paragraph("Data provided by: Real Ohio Property Data APIs", styles['Normal']))
-    story.append(Paragraph("Coverage: All 88 Ohio Counties", styles['Normal']))
+    story.append(Paragraph("Data provided by: ReportAllUSA API", styles['Normal']))
+    story.append(Paragraph("Coverage: Ohio Statewide Property Data", styles['Normal']))
 
     doc.build(story)
     buffer.seek(0)
@@ -661,14 +664,14 @@ def create_enhanced_ohio_pdf(data):
 # Main App UI - Enhanced
 # --------------------------
 st.title("🏠 Ohio Property Tax Lookup Pro - All 88 Counties")
-st.markdown("**Comprehensive Ohio property research with real data integration** | *Enhanced with 25 searches per session*")
+st.markdown("**Comprehensive Ohio property research with real data integration** | *10 searches per session*")
 
 # Enhanced region information
-st.info("🌟 **Now covering ALL 88 Ohio counties** with real property data from multiple sources including ATTOM Data, RentCast, and Ohio state databases.")
+st.info("🌟 **Now covering ALL 88 Ohio counties** with real property data from ReportAllUSA API for complete statewide coverage.")
 
 # Check usage limit
 if st.session_state.usage_count >= MAX_SEARCHES:
-    st.error("❌ Maximum usage reached (25 searches). Please refresh the page to reset.")
+    st.error("❌ Maximum usage reached (10 searches). Please refresh the page to reset.")
     st.info("💡 **Tip:** Refresh the page or use the reset button in the sidebar to start over.")
     st.stop()
 
@@ -865,7 +868,8 @@ with st.expander("⚙️ ReportAllUSA API Configuration & Setup"):
     
     ```toml
     # In your Streamlit secrets.toml file
-    REPORTALLUSA_CLIENT_KEY = "your_client_key_here"
+    [reportallusa]
+    client = "kcuk4HJnjt"
     ```
     
     #### 🌐 API Capabilities
@@ -891,13 +895,13 @@ with st.expander("⚙️ ReportAllUSA API Configuration & Setup"):
     **State-wide**: Leave county as "All of Ohio" for best coverage
     
     #### 📈 Usage Guidelines
-    - Each search counts toward your session limit (25 searches)
+    - Each search counts toward your session limit (10 searches)
     - Multiple parcel searches count as one search
     - Failed searches still count toward the limit
     - Refresh the page to reset your search count
     
     #### 🆘 Troubleshooting
-    - **"API key not configured"**: Add REPORTALLUSA_CLIENT_KEY to secrets
+    - **"API key not configured"**: Add `[reportallusa]` section with `client = "kcuk4HJnjt"` to secrets
     - **"Property not found"**: Verify parcel ID format for the specific county
     - **"Rate limit exceeded"**: Wait a moment before trying again
     - **Multiple formats**: Try different parcel ID formats if first attempt fails
@@ -909,7 +913,7 @@ with st.expander("⚙️ ReportAllUSA API Configuration & Setup"):
 # Enhanced usage information
 st.divider()
 remaining = MAX_SEARCHES - st.session_state.usage_count
-if remaining <= 5 and remaining > 0:
+if remaining <= 2 and remaining > 0:
     st.warning(f"⚠️ {remaining} searches remaining in this session!")
 elif remaining == 0:
     st.error("❌ No searches remaining. Refresh the page to reset.")
