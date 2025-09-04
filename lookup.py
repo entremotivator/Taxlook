@@ -14,7 +14,7 @@ import io
 # Page configuration
 # --------------------------
 st.set_page_config(
-    page_title="Ohio Property Tax Lookup Pro",
+    page_title="Property Tax Lookup Pro",
     page_icon="🏠",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -90,9 +90,9 @@ API_KEY = st.secrets.get("PROPERTY_API_KEY", "your_api_key_here")  # Use Streaml
 # --------------------------
 # API Functions
 # --------------------------
-def fetch_property_data(parcel_id, county=None):
+def fetch_property_data(parcel_id):
     """
-    Fetch property data from the actual API for Ohio statewide
+    Fetch property data from the actual API
     Replace this function with your actual API call
     """
     try:
@@ -103,66 +103,110 @@ def fetch_property_data(parcel_id, county=None):
         }
         
         # Construct API URL - adjust based on your API endpoint
-        # Include Ohio state parameter and optional county filter
-        params = {
-            "state": "OH",
-            "parcel_id": parcel_id
-        }
-        if county:
-            params["county"] = county
-            
-        url = f"{API_BASE_URL}/property/search"
+        url = f"{API_BASE_URL}/property/{parcel_id}"
         
         # Make the API request
-        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 404:
-            return {"status": "NOT_FOUND", "message": "Property not found in Ohio"}
-        elif response.status_code == 401:
-            return {"status": "ERROR", "message": "API authentication failed"}
-        elif response.status_code == 429:
-            return {"status": "ERROR", "message": "API rate limit exceeded"}
+            return {"status": "NOT_FOUND", "message": "Property not found"}
         else:
             return {"status": "ERROR", "message": f"API returned status code: {response.status_code}"}
             
     except requests.exceptions.Timeout:
-        return {"status": "ERROR", "message": "Request timed out - try again"}
+        return {"status": "ERROR", "message": "Request timed out"}
     except requests.exceptions.ConnectionError:
-        return {"status": "ERROR", "message": "Connection error - check internet connection"}
+        return {"status": "ERROR", "message": "Connection error"}
     except Exception as e:
         return {"status": "ERROR", "message": f"Unexpected error: {str(e)}"}
 
-def search_property_by_address(address, city=None, county=None):
+def generate_mock_data(parcel_id):
     """
-    Search property by address in Ohio
+    Generate realistic mock data for demonstration - Cuyahoga County only
+    Remove this function when implementing real API
     """
-    try:
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json"
-        }
-        
-        params = {
-            "state": "OH",
-            "address": address
-        }
-        if city:
-            params["city"] = city
-        if county:
-            params["county"] = county
-            
-        url = f"{API_BASE_URL}/property/address-search"
-        response = requests.get(url, headers=headers, params=params, timeout=30)
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return {"status": "ERROR", "message": f"Address search failed: {response.status_code}"}
-            
-    except Exception as e:
-        return {"status": "ERROR", "message": f"Address search error: {str(e)}"}
+    import random
+    
+    # Generate varied mock data based on parcel_id
+    random.seed(hash(parcel_id) % 10000)  # Consistent data for same parcel_id
+    
+    # Cuyahoga County cities and suburbs
+    cuyahoga_cities = [
+        "Cleveland", "Parma", "Lakewood", "Cleveland Heights", 
+        "Euclid", "Strongsville", "Westlake", "Rocky River",
+        "Bay Village", "Shaker Heights", "University Heights",
+        "Beachwood", "Garfield Heights", "Maple Heights",
+        "Bedford", "Berea", "Brook Park", "Fairview Park"
+    ]
+    
+    # Realistic Cuyahoga County streets
+    cuyahoga_streets = [
+        "Cedar Ave", "Euclid Ave", "Detroit Ave", "Lorain Ave",
+        "Pearl Rd", "Ridge Rd", "Broadview Rd", "State Rd",
+        "Madison Ave", "Carnegie Ave", "Woodland Ave", "Superior Ave",
+        "St Clair Ave", "Payne Ave", "Kinsman Rd", "Harvard Ave"
+    ]
+    
+    # Typical Cuyahoga County property owners
+    cuyahoga_owners = [
+        "JOHNSON, MARY A",
+        "SMITH FAMILY TRUST", 
+        "BROWN, ROBERT & SUSAN",
+        "CLEVELAND PROPERTIES LLC",
+        "WILSON, JAMES M",
+        "CUYAHOGA LAND BANK",
+        "THOMPSON, PATRICIA L",
+        "DAVIS INVESTMENT GROUP"
+    ]
+    
+    city = random.choice(cuyahoga_cities)
+    street_num = random.randint(100, 9999)
+    street = random.choice(cuyahoga_streets)
+    
+    # Cuyahoga County ZIP codes (44000-44199 range)
+    cuyahoga_zips = [44101, 44102, 44103, 44104, 44105, 44106, 44107, 44108, 44109, 44110,
+                     44111, 44112, 44113, 44114, 44115, 44116, 44117, 44118, 44119, 44120,
+                     44121, 44122, 44123, 44124, 44125, 44126, 44127, 44128, 44129, 44130,
+                     44131, 44132, 44133, 44134, 44135, 44136, 44137, 44138, 44139, 44140,
+                     44141, 44142, 44143, 44144, 44145, 44146, 44147, 44149]
+    
+    return {
+        "status": "OK",
+        "results": [{
+            "parcel_id": parcel_id,
+            "county_name": "Cuyahoga",
+            "muni_name": city,
+            "address": f"{street_num} {street}",
+            "addr_city": city.upper(),
+            "state_abbr": "OH",
+            "addr_zip": str(random.choice(cuyahoga_zips)),
+            "owner": random.choice(cuyahoga_owners),
+            "sale_price": f"{random.randint(25000, 350000)}.00",  # More realistic for Cuyahoga
+            "mkt_val_tot": f"{random.randint(30000, 400000)}.00",
+            "mkt_val_land": f"{random.randint(8000, 50000)}.00",
+            "mkt_val_bldg": f"{random.randint(15000, 300000)}.00",
+            "acreage": f"{random.uniform(0.05, 1.5):.4f}",  # Typical urban lots
+            "land_use_class": random.choice(["Residential", "Commercial", "Industrial", "Mixed Use"]),
+            "school_district": "Cleveland Municipal School District" if city == "Cleveland" else f"{city} City Schools",
+            "owner_occupied": random.choice([True, False]),
+            "last_updated": "2024-Q3",
+            "land_cover": {"Developed Medium Intensity": round(random.uniform(0.15, 0.85), 2)},
+            "buildings": random.randint(1, 2),
+            "latitude": round(random.uniform(41.35, 41.65), 4),  # Cuyahoga County coordinates
+            "longitude": round(random.uniform(-81.95, -81.45), 4),
+            "trans_date": f"202{random.randint(0, 4)}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}",
+            "zoning": random.choice(["R1F", "R2", "R3", "C1", "C2", "M1", "PUD"]),
+            "ngh_code": f"{random.randint(100, 999):03d}",
+            "census_tract": f"3906{random.randint(10, 99)}.00",  # Cuyahoga County census format
+            "census_block": f"{random.randint(1000, 9999)}",
+            "usps_residential": "Residential" if random.random() > 0.2 else "Commercial",
+            "elevation": f"{random.randint(570, 1050)}",  # Lake Erie to highest point in county
+            "mail_address1": f"{street_num} {street}",
+            "mail_address3": f"{city}, OH {random.choice(cuyahoga_zips)}"
+        }]
+    }
 
 # --------------------------
 # Session state
@@ -175,40 +219,12 @@ if 'cached_results' not in st.session_state:
     st.session_state.cached_results = {}
 
 # Maximum usage limit
-MAX_SEARCHES = 25  # Increased for Ohio statewide
-
-# Ohio Counties for dropdown
-OHIO_COUNTIES = [
-    "Adams", "Allen", "Ashland", "Ashtabula", "Athens", "Auglaize", "Belmont", "Brown",
-    "Butler", "Carroll", "Champaign", "Clark", "Clermont", "Clinton", "Columbiana",
-    "Coshocton", "Crawford", "Cuyahoga", "Darke", "Defiance", "Delaware", "Erie",
-    "Fairfield", "Fayette", "Franklin", "Fulton", "Gallia", "Geauga", "Greene",
-    "Guernsey", "Hamilton", "Hancock", "Hardin", "Harrison", "Henry", "Highland",
-    "Hocking", "Holmes", "Huron", "Jackson", "Jefferson", "Knox", "Lake", "Lawrence",
-    "Licking", "Logan", "Lorain", "Lucas", "Madison", "Mahoning", "Marion", "Medina",
-    "Meigs", "Mercer", "Miami", "Monroe", "Montgomery", "Morgan", "Morrow", "Muskingum",
-    "Noble", "Ottawa", "Paulding", "Perry", "Pickaway", "Pike", "Portage", "Preble",
-    "Putnam", "Richland", "Ross", "Sandusky", "Scioto", "Seneca", "Shelby", "Stark",
-    "Summit", "Trumbull", "Tuscarawas", "Union", "Van Wert", "Vinton", "Warren",
-    "Washington", "Wayne", "Williams", "Wood", "Wyandot"
-]
+MAX_SEARCHES = 10
 
 # --------------------------
-# Sidebar: Usage stats and filters
+# Sidebar: Usage stats
 # --------------------------
 with st.sidebar:
-    st.header("🏛️ Ohio Property Search")
-    st.markdown("**Statewide Coverage - All 88 Counties**")
-    
-    # County filter
-    st.subheader("🗺️ Search Filters")
-    selected_county = st.selectbox(
-        "Filter by County (Optional)", 
-        ["All Counties"] + OHIO_COUNTIES,
-        help="Select a specific Ohio county to narrow your search"
-    )
-    
-    st.divider()
     st.header("📈 Usage Statistics")
     usage_remaining = MAX_SEARCHES - st.session_state.usage_count
     if usage_remaining > 0:
@@ -217,19 +233,19 @@ with st.sidebar:
         st.progress(progress_value)
         
         # Color-coded warning
-        if usage_remaining <= 3:
+        if usage_remaining <= 2:
             st.error(f"⚠️ Only {usage_remaining} searches left!")
-        elif usage_remaining <= 8:
+        elif usage_remaining <= 5:
             st.warning(f"⚠️ {usage_remaining} searches remaining")
         else:
             st.success(f"✅ {usage_remaining} searches available")
     else:
-        st.error("❌ Usage limit reached (25 searches)")
+        st.error("❌ Usage limit reached (10 searches)")
         st.markdown("**Refresh the page to reset your search count**")
 
     if st.session_state.search_history:
         st.subheader("🔍 Recent Searches")
-        for i, search in enumerate(st.session_state.search_history[-8:]):
+        for i, search in enumerate(st.session_state.search_history[-5:]):
             st.text(f"{i+1}. {search}")
     
     # Reset button
@@ -244,10 +260,10 @@ with st.sidebar:
     st.divider()
     st.subheader("🔌 API Status")
     if API_KEY == "your_api_key_here":
-        st.error("❌ API Not Configured")
-        st.caption("Set PROPERTY_API_KEY in secrets")
+        st.warning("⚠️ Using Demo Mode")
+        st.caption("Set API_KEY in secrets for live data")
     else:
-        st.success("✅ API Ready - Ohio Statewide")
+        st.success("✅ API Configured")
 
 # --------------------------
 # Helper: Create property cards
@@ -258,7 +274,7 @@ def create_property_cards(data):
     <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                 padding: 25px; border-radius: 20px; margin: 15px 0; color: white; 
                 box-shadow: 0 8px 25px rgba(102,126,234,0.3);'>
-        <h2 style='color: white; margin-bottom: 20px; text-align: center; font-size: 28px;'>🏠 Ohio Property Overview</h2>
+        <h2 style='color: white; margin-bottom: 20px; text-align: center; font-size: 28px;'>🏠 Property Overview</h2>
     </div>
     """, unsafe_allow_html=True)
     
@@ -397,7 +413,7 @@ def create_pdf(data):
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle('Title', parent=styles['Heading1'], fontSize=24, spaceAfter=20, alignment=1, textColor=colors.darkblue)
     heading_style = ParagraphStyle('Heading', parent=styles['Heading2'], fontSize=14, spaceAfter=12, textColor=colors.darkblue)
-    story = [Paragraph("Ohio Property Tax Lookup Report", title_style), Spacer(1,20)]
+    story = [Paragraph("Property Tax Lookup Report", title_style), Spacer(1,20)]
 
     # Add generation timestamp
     story.append(Paragraph(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
@@ -441,52 +457,43 @@ def create_pdf(data):
 # --------------------------
 # Main App UI
 # --------------------------
-st.title("🏛️ Ohio Property Tax Lookup Pro")
-st.markdown("**Statewide Ohio Property Research - All 88 Counties** | *25 searches per session*")
+st.title("🏠 Property Tax Lookup Pro")
+st.markdown("**Advanced property research with PDF/JSON export** | *Limited to 10 searches per session*")
 
 # Check usage limit
 if st.session_state.usage_count >= MAX_SEARCHES:
-    st.error("❌ Maximum usage reached (25 searches). Please refresh the page to reset.")
+    st.error("❌ Maximum usage reached (10 searches). Please refresh the page to reset.")
     st.info("💡 **Tip:** Refresh the page or use the reset button in the sidebar to start over.")
     st.stop()
 
-# Search options
-st.subheader("🔍 Property Search Options")
+st.subheader("🔍 Property Search")
+col1, col2 = st.columns([3,1])
+with col1:
+    parcel_id = st.text_input("Enter Parcel ID", placeholder="e.g., 00824064", help="Enter a valid parcel ID to search for property information")
+with col2:
+    search_button = st.button("🔍 Search Property", type="primary", disabled=(st.session_state.usage_count >= MAX_SEARCHES))
 
-# Create tabs for different search methods
-tab1, tab2 = st.tabs(["📋 Parcel ID Search", "🏠 Address Search"])
-
-with tab1:
-    st.markdown("**Search by Parcel ID**")
-    col1, col2 = st.columns([3,1])
-    with col1:
-        parcel_id = st.text_input("Enter Parcel ID", placeholder="e.g., 00824064", help="Enter a valid Ohio parcel ID")
-    with col2:
-        search_button = st.button("🔍 Search by Parcel", type="primary", disabled=(st.session_state.usage_count >= MAX_SEARCHES))
-
-with tab2:
-    st.markdown("**Search by Property Address**")
-    col1, col2, col3 = st.columns([2,1,1])
-    with col1:
-        address_search = st.text_input("Property Address", placeholder="e.g., 123 Main St", help="Enter property address")
-    with col2:
-        city_search = st.text_input("City", placeholder="Columbus", help="City name (optional)")
-    with col3:
-        address_search_button = st.button("🔍 Search by Address", type="primary", disabled=(st.session_state.usage_count >= MAX_SEARCHES))
-
-# Parcel ID Search
+# Search functionality
 if search_button and parcel_id:
     if st.session_state.usage_count >= MAX_SEARCHES:
         st.error("Usage limit reached!")
     elif not parcel_id.strip():
         st.error("Please enter a valid Parcel ID")
     else:
-        with st.spinner("Searching Ohio statewide property database..."):
+        with st.spinner("Fetching property data..."):
             try:
-                county_filter = None if selected_county == "All Counties" else selected_county
+                # Check if we have cached results for this parcel (optional optimization)
+                cache_key = parcel_id.strip().upper()
                 
-                # Call real API
-                api_response = fetch_property_data(parcel_id.strip(), county_filter)
+                # Always fetch fresh data - remove caching for true fresh data every time
+                if API_KEY == "your_api_key_here":
+                    # Demo mode - generate mock data
+                    st.info("🔄 Demo Mode: Generating sample data...")
+                    api_response = generate_mock_data(parcel_id)
+                else:
+                    # Production mode - call real API
+                    st.info("🔄 Fetching live data from API...")
+                    api_response = fetch_property_data(parcel_id)
 
                 if api_response.get('status') == "OK" and api_response.get('results'):
                     property_data = api_response['results'][0]
@@ -494,10 +501,13 @@ if search_button and parcel_id:
                     # Update usage count and history
                     st.session_state.usage_count += 1
                     timestamp = datetime.now().strftime('%H:%M:%S')
-                    st.session_state.search_history.append(f"{parcel_id} ({property_data.get('county_name', 'Unknown')}) - {timestamp}")
+                    st.session_state.search_history.append(f"{parcel_id} - {timestamp}")
+                    
+                    # Cache the result (optional)
+                    st.session_state.cached_results[cache_key] = property_data
                     
                     # Success message
-                    st.success(f"✅ Property found in {property_data.get('county_name', 'Unknown')} County, Ohio! (Search {st.session_state.usage_count}/{MAX_SEARCHES})")
+                    st.success(f"✅ Property data found! (Search {st.session_state.usage_count}/{MAX_SEARCHES})")
                     
                     create_property_cards(property_data)
 
@@ -510,7 +520,7 @@ if search_button and parcel_id:
                         st.download_button(
                             "📄 Download PDF Report", 
                             pdf_buffer.getvalue(),
-                            file_name=f"ohio_property_report_{parcel_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", 
+                            file_name=f"property_report_{parcel_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", 
                             mime="application/pdf"
                         )
                     with col2:
@@ -518,256 +528,47 @@ if search_button and parcel_id:
                         st.download_button(
                             "📋 Download JSON Data", 
                             json_str,
-                            file_name=f"ohio_property_data_{parcel_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
+                            file_name=f"property_data_{parcel_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
                             mime="application/json"
                         )
                         
                 elif api_response.get('status') == "NOT_FOUND":
-                    st.error("❌ No property found for the provided Parcel ID in Ohio")
-                    if county_filter:
-                        st.info(f"💡 No results found in {county_filter} County. Try searching all counties or verify the Parcel ID.")
-                    else:
-                        st.info("💡 Please verify the Parcel ID and try again")
+                    st.error("❌ No property found for the provided Parcel ID")
+                    st.info("💡 Please verify the Parcel ID and try again")
+                    # Still increment usage count for failed searches
                     st.session_state.usage_count += 1
                 else:
                     error_msg = api_response.get('message', 'Unknown error occurred')
                     st.error(f"❌ Error: {error_msg}")
                     st.info("💡 Please try again or contact support if the issue persists")
+                    # Still increment usage count for failed searches
                     st.session_state.usage_count += 1
                     
             except Exception as e:
                 st.error(f"❌ Unexpected error occurred: {str(e)}")
                 st.info("💡 Please try again or contact support")
+                # Increment usage count for errors too
                 st.session_state.usage_count += 1
 
-# Address Search
-if address_search_button and address_search:
-    if st.session_state.usage_count >= MAX_SEARCHES:
-        st.error("Usage limit reached!")
-    elif not address_search.strip():
-        st.error("Please enter a valid address")
-    else:
-        with st.spinner("Searching Ohio properties by address..."):
-            try:
-                county_filter = None if selected_county == "All Counties" else selected_county
-                
-                # Call address search API
-                api_response = search_property_by_address(address_search.strip(), city_search.strip() if city_search else None, county_filter)
-
-                if api_response.get('status') == "OK" and api_response.get('results'):
-                    properties = api_response['results']
-                    
-                    # Update usage count
-                    st.session_state.usage_count += 1
-                    timestamp = datetime.now().strftime('%H:%M:%S')
-                    search_location = f"{address_search}, {city_search}" if city_search else address_search
-                    st.session_state.search_history.append(f"Address: {search_location} - {timestamp}")
-                    
-                    if len(properties) == 1:
-                        # Single result
-                        property_data = properties[0]
-                        st.success(f"✅ Property found: {property_data.get('address', 'N/A')}, {property_data.get('county_name', 'Unknown')} County!")
-                        create_property_cards(property_data)
-                        
-                        # Export options for single result
-                        st.divider()
-                        st.subheader("📥 Export Options")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            pdf_buffer = create_pdf(property_data)
-                            st.download_button(
-                                "📄 Download PDF Report", 
-                                pdf_buffer.getvalue(),
-                                file_name=f"ohio_property_report_{property_data.get('parcel_id', 'unknown')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", 
-                                mime="application/pdf"
-                            )
-                        with col2:
-                            json_str = json.dumps(property_data, indent=2)
-                            st.download_button(
-                                "📋 Download JSON Data", 
-                                json_str,
-                                file_name=f"ohio_property_data_{property_data.get('parcel_id', 'unknown')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
-                                mime="application/json"
-                            )
-                    else:
-                        # Multiple results
-                        st.success(f"✅ Found {len(properties)} properties matching your address search!")
-                        
-                        # Display results in a table format
-                        st.subheader("🏘️ Multiple Properties Found")
-                        
-                        # Create a summary table
-                        summary_data = []
-                        for i, prop in enumerate(properties):
-                            summary_data.append({
-                                "Select": f"View Details #{i+1}",
-                                "Address": prop.get('address', 'N/A'),
-                                "City": prop.get('addr_city', 'N/A'),
-                                "County": prop.get('county_name', 'N/A'),
-                                "Parcel ID": prop.get('parcel_id', 'N/A'),
-                                "Market Value": f"${float(prop.get('mkt_val_tot', 0)):,.0f}",
-                                "Owner": prop.get('owner', 'N/A')[:30] + "..." if len(prop.get('owner', '')) > 30 else prop.get('owner', 'N/A')
-                            })
-                        
-                        # Display as dataframe
-                        df = pd.DataFrame(summary_data)
-                        st.dataframe(df, use_container_width=True, hide_index=True)
-                        
-                        # Allow selection of specific property
-                        st.subheader("📋 Select Property for Details")
-                        selected_index = st.selectbox(
-                            "Choose a property to view full details:",
-                            range(len(properties)),
-                            format_func=lambda x: f"Property #{x+1}: {properties[x].get('address', 'N/A')} - {properties[x].get('county_name', 'N/A')} County"
-                        )
-                        
-                        if st.button("🔍 View Selected Property Details", type="secondary"):
-                            selected_property = properties[selected_index]
-                            st.markdown("---")
-                            st.markdown(f"### 🏠 Detailed View: Property #{selected_index + 1}")
-                            create_property_cards(selected_property)
-                            
-                            # Export options for selected property
-                            st.divider()
-                            st.subheader("📥 Export Selected Property")
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                pdf_buffer = create_pdf(selected_property)
-                                st.download_button(
-                                    "📄 Download PDF Report", 
-                                    pdf_buffer.getvalue(),
-                                    file_name=f"ohio_property_report_{selected_property.get('parcel_id', 'unknown')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf", 
-                                    mime="application/pdf"
-                                )
-                            with col2:
-                                json_str = json.dumps(selected_property, indent=2)
-                                st.download_button(
-                                    "📋 Download JSON Data", 
-                                    json_str,
-                                    file_name=f"ohio_property_data_{selected_property.get('parcel_id', 'unknown')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
-                                    mime="application/json"
-                                )
-                        
-                        # Bulk export option
-                        st.divider()
-                        st.subheader("📦 Bulk Export All Results")
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            # Export all as JSON
-                            all_json = json.dumps(properties, indent=2)
-                            st.download_button(
-                                "📋 Download All as JSON", 
-                                all_json,
-                                file_name=f"ohio_properties_bulk_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
-                                mime="application/json"
-                            )
-                        with col2:
-                            # Export summary as CSV
-                            csv_data = pd.DataFrame(summary_data).to_csv(index=False)
-                            st.download_button(
-                                "📊 Download Summary CSV", 
-                                csv_data,
-                                file_name=f"ohio_properties_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", 
-                                mime="text/csv"
-                            )
-                        
-                elif api_response.get('status') == "NOT_FOUND":
-                    st.error("❌ No properties found for the provided address in Ohio")
-                    if county_filter:
-                        st.info(f"💡 No results found in {county_filter} County. Try searching all counties or check the address.")
-                    else:
-                        st.info("💡 Please verify the address and try again. Make sure to include street number and name.")
-                    st.session_state.usage_count += 1
-                else:
-                    error_msg = api_response.get('message', 'Unknown error occurred')
-                    st.error(f"❌ Address search error: {error_msg}")
-                    st.info("💡 Please try again or contact support if the issue persists")
-                    st.session_state.usage_count += 1
-                    
-            except Exception as e:
-                st.error(f"❌ Unexpected error during address search: {str(e)}")
-                st.info("💡 Please try again or contact support")
-                st.session_state.usage_count += 1
-
-# Additional Information Section
-st.divider()
-st.subheader("ℹ️ Ohio Property Search Information")
-
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown("""
-    **🗺️ Coverage Area:**
-    - All 88 Ohio Counties
-    - Statewide property records
-    - Municipal and township data
-    - Rural and urban properties
-    
-    **📊 Search Capabilities:**
-    - Parcel ID lookup
-    - Address-based search
-    - County filtering
-    - Multiple result handling
-    """)
-
-with col2:
-    st.markdown("""
-    **📋 Data Includes:**
-    - Property valuations
-    - Owner information
-    - Tax assessments
-    - Land use classifications
-    - Zoning information
-    - Geographic coordinates
-    
-    **📥 Export Formats:**
-    - PDF reports
-    - JSON data files
-    - CSV summaries (bulk)
-    """)
+# Clear cache button (for development/testing)
+if st.session_state.cached_results and st.button("🗑️ Clear Cache", help="Clear cached results (for testing)"):
+    st.session_state.cached_results = {}
+    st.success("Cache cleared!")
 
 # Usage warning at bottom
 st.divider()
 remaining = MAX_SEARCHES - st.session_state.usage_count
-if remaining <= 5 and remaining > 0:
+if remaining <= 2 and remaining > 0:
     st.warning(f"⚠️ Only {remaining} searches remaining in this session!")
 elif remaining == 0:
     st.error("❌ No searches remaining. Refresh the page to reset.")
-
-# Ohio-specific help section
-with st.expander("❓ Ohio Property Search Help", expanded=False):
-    st.markdown("""
-    ### How to Search Ohio Properties
-    
-    **Parcel ID Format Examples:**
-    - Franklin County: `010-123456`
-    - Cuyahoga County: `124-05-123`
-    - Hamilton County: `456-0-123-00`
-    
-    **Address Search Tips:**
-    - Include street number: `123 Main St`
-    - City name helps narrow results: `Columbus`, `Cleveland`
-    - Use county filter for better results
-    
-    **Common Ohio Counties:**
-    - **Franklin** (Columbus area)
-    - **Cuyahoga** (Cleveland area)  
-    - **Hamilton** (Cincinnati area)
-    - **Montgomery** (Dayton area)
-    - **Summit** (Akron area)
-    - **Lucas** (Toledo area)
-    
-    **Troubleshooting:**
-    - No results? Try different county
-    - Multiple results? Use specific city name
-    - API errors? Check internet connection
-    """)
 
 # Custom footer with upgrade option
 st.markdown(
     f"""
     <div class="custom-footer">
-        Ohio Property Tax Lookup Pro | Searches Used: {st.session_state.usage_count}/{MAX_SEARCHES} | 
-        Statewide Coverage: All 88 Counties | Session: {datetime.now().strftime('%Y-%m-%d')} | 
+        Property Tax Lookup Pro | Searches Used: {st.session_state.usage_count}/{MAX_SEARCHES} | 
+        Session: {datetime.now().strftime('%Y-%m-%d')} | 
         <a href="https://aipropiq.com/funnel-evergreen-checkout/" target="_blank" style="color: #ff6b6b; text-decoration: none;">
             💎 Upgrade to Premium
         </a>
