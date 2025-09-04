@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 import pandas as pd
+import requests
 from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -80,12 +81,118 @@ hide_streamlit_style = """
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 # --------------------------
+# API Configuration
+# --------------------------
+# Replace these with your actual API details
+API_BASE_URL = "https://api.yourpropertyservice.com"  # Replace with actual API URL
+API_KEY = st.secrets.get("PROPERTY_API_KEY", "your_api_key_here")  # Use Streamlit secrets
+
+# --------------------------
+# API Functions
+# --------------------------
+def fetch_property_data(parcel_id):
+    """
+    Fetch property data from the actual API
+    Replace this function with your actual API call
+    """
+    try:
+        # Example API call structure - adjust based on your API
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        # Construct API URL - adjust based on your API endpoint
+        url = f"{API_BASE_URL}/property/{parcel_id}"
+        
+        # Make the API request
+        response = requests.get(url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 404:
+            return {"status": "NOT_FOUND", "message": "Property not found"}
+        else:
+            return {"status": "ERROR", "message": f"API returned status code: {response.status_code}"}
+            
+    except requests.exceptions.Timeout:
+        return {"status": "ERROR", "message": "Request timed out"}
+    except requests.exceptions.ConnectionError:
+        return {"status": "ERROR", "message": "Connection error"}
+    except Exception as e:
+        return {"status": "ERROR", "message": f"Unexpected error: {str(e)}"}
+
+def generate_mock_data(parcel_id):
+    """
+    Generate realistic mock data for demonstration
+    Remove this function when implementing real API
+    """
+    import random
+    
+    # Generate varied mock data based on parcel_id
+    random.seed(hash(parcel_id) % 10000)  # Consistent data for same parcel_id
+    
+    counties = ["Cuyahoga", "Franklin", "Hamilton", "Summit", "Montgomery"]
+    cities = ["Cleveland", "Columbus", "Cincinnati", "Akron", "Dayton"]
+    streets = ["Main St", "Oak Ave", "Elm Dr", "Park Blvd", "First Ave", "Second St"]
+    owners = [
+        "JOHNSON, MARY A",
+        "SMITH FAMILY TRUST", 
+        "BROWN, ROBERT & SUSAN",
+        "DAVIS PROPERTIES LLC",
+        "WILSON, JAMES M"
+    ]
+    
+    county = random.choice(counties)
+    city = random.choice(cities)
+    street_num = random.randint(100, 9999)
+    street = random.choice(streets)
+    
+    return {
+        "status": "OK",
+        "results": [{
+            "parcel_id": parcel_id,
+            "county_name": county,
+            "muni_name": city,
+            "address": f"{street_num} {street}",
+            "addr_city": city.upper(),
+            "state_abbr": "OH",
+            "addr_zip": f"{random.randint(43000, 45999)}",
+            "owner": random.choice(owners),
+            "sale_price": f"{random.randint(50000, 500000)}.00",
+            "mkt_val_tot": f"{random.randint(75000, 600000)}.00",
+            "mkt_val_land": f"{random.randint(15000, 100000)}.00",
+            "mkt_val_bldg": f"{random.randint(50000, 500000)}.00",
+            "acreage": f"{random.uniform(0.1, 2.0):.4f}",
+            "land_use_class": random.choice(["Residential", "Commercial", "Industrial", "Agricultural"]),
+            "school_district": f"{city} City Schools",
+            "owner_occupied": random.choice([True, False]),
+            "last_updated": f"2024-Q{random.randint(1, 4)}",
+            "land_cover": {"Developed Medium Intensity": round(random.uniform(0.05, 0.95), 2)},
+            "buildings": random.randint(1, 3),
+            "latitude": round(random.uniform(39.0, 42.0), 4),
+            "longitude": round(random.uniform(-84.5, -80.5), 4),
+            "trans_date": f"202{random.randint(1, 4)}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}",
+            "zoning": random.choice(["R1F", "R2", "C1", "M1", "A1"]),
+            "ngh_code": f"{random.randint(1000, 9999)}",
+            "census_tract": f"{random.randint(1000, 9999)}",
+            "census_block": f"{random.randint(1000, 9999)}",
+            "usps_residential": random.choice(["Residential", "Commercial", "Mixed Use"]),
+            "elevation": f"{random.randint(500, 1200)}",
+            "mail_address1": f"{street_num} {street}",
+            "mail_address3": f"{city}, OH {random.randint(43000, 45999)}"
+        }]
+    }
+
+# --------------------------
 # Session state
 # --------------------------
 if 'usage_count' not in st.session_state:
     st.session_state.usage_count = 0
 if 'search_history' not in st.session_state:
     st.session_state.search_history = []
+if 'cached_results' not in st.session_state:
+    st.session_state.cached_results = {}
 
 # Maximum usage limit
 MAX_SEARCHES = 10
@@ -122,7 +229,17 @@ with st.sidebar:
     if st.button("🔄 Reset Search Count", type="secondary"):
         st.session_state.usage_count = 0
         st.session_state.search_history = []
+        st.session_state.cached_results = {}
         st.rerun()
+
+    # API Status
+    st.divider()
+    st.subheader("🔌 API Status")
+    if API_KEY == "your_api_key_here":
+        st.warning("⚠️ Using Demo Mode")
+        st.caption("Set API_KEY in secrets for live data")
+    else:
+        st.success("✅ API Configured")
 
 # --------------------------
 # Helper: Create property cards
@@ -274,48 +391,29 @@ if search_button and parcel_id:
     else:
         with st.spinner("Fetching property data..."):
             try:
-                # Demo sample data (replace with real API call if desired)
-                sample_response = {
-                    "status": "OK",
-                    "results": [{
-                        "parcel_id": parcel_id,
-                        "county_name": "Cuyahoga",
-                        "muni_name": "Cleveland",
-                        "address": "2469 DOBSON Ct",
-                        "addr_city": "CLEVELAND",
-                        "state_abbr": "OH",
-                        "addr_zip": "44109",
-                        "owner": "STATE OF OHIO FORF CV # 983792",
-                        "sale_price": "0.00",
-                        "mkt_val_tot": "2500.00",
-                        "mkt_val_land": "2500.00",
-                        "mkt_val_bldg": "0.00",
-                        "acreage": "0.0870",
-                        "land_use_class": "Residential",
-                        "school_district": "Cleveland Municipal School District",
-                        "owner_occupied": True,
-                        "last_updated": "2025-Q3",
-                        "land_cover": {"Developed Medium Intensity": 0.09},
-                        "buildings": 1,
-                        "latitude": 41.4993,
-                        "longitude": -81.6944,
-                        "trans_date": "2023-01-15",
-                        "zoning": "R1F",
-                        "ngh_code": "0001",
-                        "census_tract": "1001",
-                        "census_block": "1001",
-                        "usps_residential": "Residential",
-                        "elevation": "650"
-                    }]
-                }
+                # Check if we have cached results for this parcel (optional optimization)
+                cache_key = parcel_id.strip().upper()
+                
+                # Always fetch fresh data - remove caching for true fresh data every time
+                if API_KEY == "your_api_key_here":
+                    # Demo mode - generate mock data
+                    st.info("🔄 Demo Mode: Generating sample data...")
+                    api_response = generate_mock_data(parcel_id)
+                else:
+                    # Production mode - call real API
+                    st.info("🔄 Fetching live data from API...")
+                    api_response = fetch_property_data(parcel_id)
 
-                if sample_response['status']=="OK" and sample_response['results']:
-                    property_data = sample_response['results'][0]
+                if api_response.get('status') == "OK" and api_response.get('results'):
+                    property_data = api_response['results'][0]
                     
                     # Update usage count and history
                     st.session_state.usage_count += 1
                     timestamp = datetime.now().strftime('%H:%M:%S')
                     st.session_state.search_history.append(f"{parcel_id} - {timestamp}")
+                    
+                    # Cache the result (optional)
+                    st.session_state.cached_results[cache_key] = property_data
                     
                     # Success message
                     st.success(f"✅ Property data found! (Search {st.session_state.usage_count}/{MAX_SEARCHES})")
@@ -342,12 +440,29 @@ if search_button and parcel_id:
                             file_name=f"property_data_{parcel_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json", 
                             mime="application/json"
                         )
-                else:
+                        
+                elif api_response.get('status') == "NOT_FOUND":
                     st.error("❌ No property found for the provided Parcel ID")
                     st.info("💡 Please verify the Parcel ID and try again")
+                    # Still increment usage count for failed searches
+                    st.session_state.usage_count += 1
+                else:
+                    error_msg = api_response.get('message', 'Unknown error occurred')
+                    st.error(f"❌ Error: {error_msg}")
+                    st.info("💡 Please try again or contact support if the issue persists")
+                    # Still increment usage count for failed searches
+                    st.session_state.usage_count += 1
                     
             except Exception as e:
-                st.error(f"❌ Error occurred while fetching data: {str(e)}")
+                st.error(f"❌ Unexpected error occurred: {str(e)}")
+                st.info("💡 Please try again or contact support")
+                # Increment usage count for errors too
+                st.session_state.usage_count += 1
+
+# Clear cache button (for development/testing)
+if st.session_state.cached_results and st.button("🗑️ Clear Cache", help="Clear cached results (for testing)"):
+    st.session_state.cached_results = {}
+    st.success("Cache cleared!")
 
 # Usage warning at bottom
 st.divider()
