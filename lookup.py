@@ -14,7 +14,7 @@ import io
 # Page configuration
 # --------------------------
 st.set_page_config(
-    page_title="Ohio Property Tax Lookup Pro - All 88 Counties",
+    page_title="Ohio Property Tax Lookup Pro - AI PropIQ",
     page_icon="🏠",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -77,13 +77,6 @@ hide_streamlit_style = """
         z-index: 999;
     }
     
-    .ohio-counties {
-        background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-    }
-    
     /* Premium link styling - Light Blue Theme */
     .premium-link {
         background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
@@ -103,44 +96,6 @@ hide_streamlit_style = """
     
     .premium-link a:hover {
         text-decoration: underline !important;
-    }
-    
-    /* JSON Card Styling */
-    .json-card {
-        background: linear-gradient(135deg, #E3F2FD 0%, #BBDEFB 100%);
-        padding: 15px;
-        border-radius: 10px;
-        margin: 10px 0;
-        border-left: 4px solid #2196F3;
-        box-shadow: 0 2px 8px rgba(33,150,243,0.2);
-    }
-    
-    .json-card h4 {
-        color: #1565C0;
-        margin-bottom: 10px;
-        font-weight: bold;
-    }
-    
-    .json-field {
-        margin: 5px 0;
-        padding: 3px 0;
-        border-bottom: 1px solid rgba(33,150,243,0.1);
-    }
-    
-    .json-field:last-child {
-        border-bottom: none;
-    }
-    
-    .field-label {
-        font-weight: bold;
-        color: #1565C0;
-        display: inline-block;
-        min-width: 120px;
-    }
-    
-    .field-value {
-        color: #424242;
-        margin-left: 10px;
     }
     
     /* Address highlight styling */
@@ -279,7 +234,7 @@ OHIO_COUNTIES = {
 }
 
 # --------------------------
-# Real Property Data API Configuration - ReportAllUSA
+# Real Property Data API Configuration - ReportAllUSA (Keep API stuff the same)
 # --------------------------
 PROPERTY_API_CONFIG = {
     "REPORTALLUSA_CLIENT_KEY": st.secrets.get("reportallusa", {}).get("client", ""),
@@ -288,7 +243,40 @@ PROPERTY_API_CONFIG = {
 }
 
 # --------------------------
-# Enhanced API Functions for Real Ohio Property Data - ReportAllUSA
+# Enhanced Session State Management
+# --------------------------
+def initialize_session_state():
+    """Initialize all session state variables for better app data persistence"""
+    if 'usage_count' not in st.session_state:
+        st.session_state.usage_count = 0
+    if 'search_history' not in st.session_state:
+        st.session_state.search_history = []
+    if 'cached_results' not in st.session_state:
+        st.session_state.cached_results = {}
+    if 'all_search_results' not in st.session_state:
+        st.session_state.all_search_results = []
+    if 'current_property_data' not in st.session_state:
+        st.session_state.current_property_data = None
+    if 'last_search_timestamp' not in st.session_state:
+        st.session_state.last_search_timestamp = None
+    if 'app_session_id' not in st.session_state:
+        st.session_state.app_session_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+def add_search_to_history(parcel_id, county_filter, results):
+    """Add search results to session history for combined PDF generation"""
+    search_entry = {
+        'timestamp': datetime.now(),
+        'parcel_id': parcel_id,
+        'county_filter': county_filter,
+        'results': results,
+        'search_id': len(st.session_state.all_search_results) + 1
+    }
+    st.session_state.all_search_results.append(search_entry)
+    st.session_state.current_property_data = results[0] if results else None
+    st.session_state.last_search_timestamp = datetime.now()
+
+# --------------------------
+# Enhanced API Functions for Real Ohio Property Data - ReportAllUSA (Keep API same)
 # --------------------------
 def fetch_ohio_property_data_reportallusa(parcel_id, county_name=None):
     """
@@ -299,7 +287,7 @@ def fetch_ohio_property_data_reportallusa(parcel_id, county_name=None):
         if not client_key:
             return {
                 "status": "ERROR", 
-                "message": "ReportAllUSA client key not configured. Please set client key in [reportallusa] section of secrets.",
+                "message": "API client key not configured. Please set client key in configuration.",
                 "raw_response": None
             }
 
@@ -324,7 +312,7 @@ def fetch_ohio_property_data_reportallusa(parcel_id, county_name=None):
                 return {
                     "status": "OK",
                     "results": data.get('results', []),
-                    "api_source": "ReportAllUSA - Ohio Statewide",
+                    "api_source": "AI PropIQ - Ohio Statewide",
                     "total_records": data.get('count', 0),
                     "query_info": data.get('query', ''),
                     "raw_response": data  # Include raw JSON response
@@ -338,7 +326,7 @@ def fetch_ohio_property_data_reportallusa(parcel_id, county_name=None):
         elif response.status_code == 401:
             return {
                 "status": "ERROR", 
-                "message": "API authentication failed. Please check your ReportAllUSA client key.",
+                "message": "API authentication failed. Please check your API client key.",
                 "raw_response": None
             }
         elif response.status_code == 429:
@@ -357,13 +345,13 @@ def fetch_ohio_property_data_reportallusa(parcel_id, county_name=None):
     except requests.exceptions.Timeout:
         return {
             "status": "ERROR", 
-            "message": "Request timed out. The ReportAllUSA API may be experiencing delays.",
+            "message": "Request timed out. The API may be experiencing delays.",
             "raw_response": None
         }
     except requests.exceptions.ConnectionError:
         return {
             "status": "ERROR", 
-            "message": "Connection error. Unable to reach ReportAllUSA API.",
+            "message": "Connection error. Unable to reach API.",
             "raw_response": None
         }
     except requests.exceptions.RequestException as e:
@@ -388,7 +376,7 @@ def search_multiple_parcels_ohio(parcel_ids, county_name=None):
         if not client_key:
             return {
                 "status": "ERROR", 
-                "message": "ReportAllUSA client key not configured.",
+                "message": "API client key not configured.",
                 "raw_response": None
             }
 
@@ -415,7 +403,7 @@ def search_multiple_parcels_ohio(parcel_ids, county_name=None):
                 return {
                     "status": "OK",
                     "results": data.get('results', []),
-                    "api_source": "ReportAllUSA - Ohio Statewide",
+                    "api_source": "AI PropIQ - Ohio Statewide",
                     "total_records": data.get('count', 0),
                     "query_info": data.get('query', ''),
                     "raw_response": data  # Include raw JSON response
@@ -462,47 +450,10 @@ def search_ohio_property_comprehensive(search_term, search_type="parcel", county
         }
 
 # --------------------------
-# Enhanced Property Display Functions with Full JSON Cards
+# Clean Property Display Functions (No HTML, Clean Info Only)
 # --------------------------
-def create_json_field_card(title, fields, data):
-    """Create a card for a group of JSON fields"""
-    card_html = f"""
-    <div class='json-card'>
-        <h4>{title}</h4>
-    """
-    
-    for field_key, field_label in fields.items():
-        value = data.get(field_key, 'N/A')
-        if value is not None and value != '':
-            # Format numeric values
-            if field_key in ['mkt_val_land', 'mkt_val_bldg', 'mkt_val_tot', 'sale_price'] and str(value).replace('.', '').isdigit():
-                try:
-                    value = f"${float(value):,.2f}"
-                except:
-                    pass
-            elif field_key in ['bldg_sqft'] and str(value).isdigit():
-                try:
-                    value = f"{int(value):,} sq ft"
-                except:
-                    pass
-            elif field_key in ['acreage', 'acreage_calc'] and str(value).replace('.', '').isdigit():
-                try:
-                    value = f"{float(value):.3f} acres"
-                except:
-                    pass
-            
-            card_html += f"""
-            <div class='json-field'>
-                <span class='field-label'>{field_label}:</span>
-                <span class='field-value'>{value}</span>
-            </div>
-            """
-    
-    card_html += "</div>"
-    return card_html
-
-def create_enhanced_ohio_property_cards(data):
-    """Create enhanced property display cards for Ohio property data with full JSON response"""
+def create_clean_property_info_cards(data):
+    """Create clean property information cards without HTML formatting"""
     
     # Highlighted Address Section
     property_address = data.get('address', data.get('property_address', data.get('street_address', 'N/A')))
@@ -605,136 +556,221 @@ def create_enhanced_ohio_property_cards(data):
     st.divider()
 
 # --------------------------
-# Sidebar JSON Cards Function
+# Clean JSON Information Display on Main Page
 # --------------------------
-def display_json_cards_in_sidebar(data):
-    """Display comprehensive JSON data in organized cards in the sidebar"""
+def display_clean_property_details(data):
+    """Display comprehensive property data in clean format on main page"""
     
-    with st.sidebar:
-        st.subheader("📊 Complete Property Data")
+    st.subheader("📊 Complete Property Information")
+    
+    # Create tabs for organized information display
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "🏛️ Basic Info", "📍 Address Details", "👤 Owner Info", 
+        "💰 Financial Data", "🏠 Property Details", "🗺️ Location Data"
+    ])
+    
+    with tab1:
+        st.write("**Basic Property Information**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Parcel ID:** {data.get('parcel_id', 'N/A')}")
+            st.write(f"**County ID:** {data.get('county_id', 'N/A')}")
+            st.write(f"**County Name:** {data.get('county_name', 'N/A')}")
+            st.write(f"**Municipality:** {data.get('muni_name', 'N/A')}")
+        with col2:
+            st.write(f"**Census Place:** {data.get('census_place', 'N/A')}")
+            st.write(f"**State:** {data.get('state_abbr', 'N/A')}")
+            st.write(f"**Robust ID:** {data.get('robust_id', 'N/A')}")
+            st.write(f"**Last Updated:** {data.get('last_updated', 'N/A')}")
+    
+    with tab2:
+        st.write("**Address Information**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Full Address:** {data.get('address', 'N/A')}")
+            st.write(f"**Address Number:** {data.get('addr_number', 'N/A')}")
+            st.write(f"**Street Name:** {data.get('addr_street_name', 'N/A')}")
+            st.write(f"**Street Type:** {data.get('addr_street_type', 'N/A')}")
+        with col2:
+            st.write(f"**City:** {data.get('addr_city', 'N/A')}")
+            st.write(f"**ZIP Code:** {data.get('addr_zip', 'N/A')}")
+            st.write(f"**ZIP+4:** {data.get('addr_zipplusfour', 'N/A')}")
+            st.write(f"**Census ZIP:** {data.get('census_zip', 'N/A')}")
         
-        # Basic Property Information
-        basic_fields = {
-            'parcel_id': 'Parcel ID',
-            'county_id': 'County ID',
-            'county_name': 'County Name',
-            'muni_name': 'Municipality',
-            'census_place': 'Census Place',
-            'state_abbr': 'State',
-            'robust_id': 'Robust ID'
-        }
-        st.markdown(create_json_field_card("🏛️ Basic Information", basic_fields, data), unsafe_allow_html=True)
+        st.write("**Mailing Address**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Mail Address Line 1:** {data.get('mail_address1', 'N/A')}")
+            st.write(f"**Mail Address Line 3:** {data.get('mail_address3', 'N/A')}")
+            st.write(f"**Mail Street Name:** {data.get('mail_streetname', 'N/A')}")
+            st.write(f"**Mail Street Type:** {data.get('mail_streetnameposttype', 'N/A')}")
+        with col2:
+            st.write(f"**Mail Place Name:** {data.get('mail_placename', 'N/A')}")
+            st.write(f"**Mail State:** {data.get('mail_statename', 'N/A')}")
+            st.write(f"**Mail ZIP Code:** {data.get('mail_zipcode', 'N/A')}")
+    
+    with tab3:
+        st.write("**Owner Information**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Owner Name:** {data.get('owner', 'N/A')}")
+            st.write(f"**Owner Occupied:** {data.get('owner_occupied', 'N/A')}")
+        with col2:
+            st.write(f"**School District:** {data.get('school_district', 'N/A')}")
+            st.write(f"**Municipality ID:** {data.get('muni_id', 'N/A')}")
+    
+    with tab4:
+        st.write("**Financial Information**")
+        col1, col2 = st.columns(2)
+        with col1:
+            try:
+                sale_price = f"${float(data.get('sale_price', 0)):,.2f}" if data.get('sale_price') else 'N/A'
+                mkt_val_land = f"${float(data.get('mkt_val_land', 0)):,.2f}" if data.get('mkt_val_land') else 'N/A'
+                mkt_val_bldg = f"${float(data.get('mkt_val_bldg', 0)):,.2f}" if data.get('mkt_val_bldg') else 'N/A'
+                mkt_val_tot = f"${float(data.get('mkt_val_tot', 0)):,.2f}" if data.get('mkt_val_tot') else 'N/A'
+            except:
+                sale_price = mkt_val_land = mkt_val_bldg = mkt_val_tot = 'N/A'
+            
+            st.write(f"**Sale Price:** {sale_price}")
+            st.write(f"**Market Value - Land:** {mkt_val_land}")
+        with col2:
+            st.write(f"**Market Value - Building:** {mkt_val_bldg}")
+            st.write(f"**Market Value - Total:** {mkt_val_tot}")
+            st.write(f"**Transaction Date:** {data.get('trans_date', 'N/A')}")
+    
+    with tab5:
+        st.write("**Property Characteristics**")
+        col1, col2 = st.columns(2)
+        with col1:
+            bldg_sqft = f"{int(data.get('bldg_sqft', 0)):,} sq ft" if data.get('bldg_sqft') and str(data.get('bldg_sqft')).isdigit() else data.get('bldg_sqft', 'N/A')
+            acreage = f"{float(data.get('acreage', 0)):.3f} acres" if data.get('acreage') else 'N/A'
+            
+            st.write(f"**Building Sq Ft:** {bldg_sqft}")
+            st.write(f"**Land Use Code:** {data.get('land_use_code', 'N/A')}")
+            st.write(f"**Land Use Class:** {data.get('land_use_class', 'N/A')}")
+            st.write(f"**Acreage:** {acreage}")
+        with col2:
+            st.write(f"**Calculated Acreage:** {data.get('acreage_calc', 'N/A')}")
+            st.write(f"**Number of Buildings:** {data.get('buildings', 'N/A')}")
+            st.write(f"**Zoning:** {data.get('zoning', 'N/A')}")
+            st.write(f"**USPS Classification:** {data.get('usps_residential', 'N/A')}")
+    
+    with tab6:
+        st.write("**Location Information**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write(f"**Latitude:** {data.get('latitude', 'N/A')}")
+            st.write(f"**Longitude:** {data.get('longitude', 'N/A')}")
+            st.write(f"**Elevation:** {data.get('elevation', 'N/A')}")
+            st.write(f"**Neighborhood Code:** {data.get('ngh_code', 'N/A')}")
+        with col2:
+            st.write(f"**Census Block:** {data.get('census_block', 'N/A')}")
+            st.write(f"**Census Tract:** {data.get('census_tract', 'N/A')}")
         
-        # Address Information
-        address_fields = {
-            'address': 'Full Address',
-            'addr_number': 'Address Number',
-            'addr_street_name': 'Street Name',
-            'addr_street_type': 'Street Type',
-            'addr_city': 'City',
-            'addr_zip': 'ZIP Code',
-            'addr_zipplusfour': 'ZIP+4',
-            'census_zip': 'Census ZIP'
-        }
-        st.markdown(create_json_field_card("📍 Address Details", address_fields, data), unsafe_allow_html=True)
-        
-        # Mailing Address
-        mail_fields = {
-            'mail_address1': 'Mail Address Line 1',
-            'mail_address3': 'Mail Address Line 3',
-            'mail_addressnumber': 'Mail Address Number',
-            'mail_streetname': 'Mail Street Name',
-            'mail_streetnameposttype': 'Mail Street Type',
-            'mail_placename': 'Mail Place Name',
-            'mail_statename': 'Mail State',
-            'mail_zipcode': 'Mail ZIP Code'
-        }
-        st.markdown(create_json_field_card("📮 Mailing Address", mail_fields, data), unsafe_allow_html=True)
-        
-        # Owner Information
-        owner_fields = {
-            'owner': 'Owner Name',
-            'owner_occupied': 'Owner Occupied'
-        }
-        st.markdown(create_json_field_card("👤 Owner Details", owner_fields, data), unsafe_allow_html=True)
-        
-        # Financial Information
-        financial_fields = {
-            'trans_date': 'Transaction Date',
-            'sale_price': 'Sale Price',
-            'mkt_val_land': 'Market Value - Land',
-            'mkt_val_bldg': 'Market Value - Building',
-            'mkt_val_tot': 'Market Value - Total'
-        }
-        st.markdown(create_json_field_card("💰 Financial Data", financial_fields, data), unsafe_allow_html=True)
-        
-        # Property Characteristics
-        property_fields = {
-            'bldg_sqft': 'Building Sq Ft',
-            'land_use_code': 'Land Use Code',
-            'land_use_class': 'Land Use Class',
-            'acreage': 'Acreage',
-            'acreage_calc': 'Calculated Acreage',
-            'buildings': 'Number of Buildings',
-            'zoning': 'Zoning'
-        }
-        st.markdown(create_json_field_card("🏠 Property Details", property_fields, data), unsafe_allow_html=True)
-        
-        # Location Information
-        location_fields = {
-            'latitude': 'Latitude',
-            'longitude': 'Longitude',
-            'elevation': 'Elevation',
-            'ngh_code': 'Neighborhood Code',
-            'census_block': 'Census Block',
-            'census_tract': 'Census Tract'
-        }
-        st.markdown(create_json_field_card("🗺️ Location Data", location_fields, data), unsafe_allow_html=True)
-        
-        # Administrative Information
-        admin_fields = {
-            'school_district': 'School District',
-            'muni_id': 'Municipality ID',
-            'usps_residential': 'USPS Classification',
-            'last_updated': 'Last Updated',
-            'county_link': 'County Link'
-        }
-        st.markdown(create_json_field_card("🏛️ Administrative", admin_fields, data), unsafe_allow_html=True)
-        
-        # Land Cover Information
+        # Land Cover and Crop Cover Information
         if 'land_cover' in data and data['land_cover']:
-            land_cover_html = """
-            <div class='json-card'>
-                <h4>🌱 Land Cover</h4>
-            """
+            st.write("**Land Cover:**")
             for cover_type, percentage in data['land_cover'].items():
-                land_cover_html += f"""
-                <div class='json-field'>
-                    <span class='field-label'>{cover_type}:</span>
-                    <span class='field-value'>{percentage}</span>
-                </div>
-                """
-            land_cover_html += "</div>"
-            st.markdown(land_cover_html, unsafe_allow_html=True)
+                st.write(f"  • {cover_type}: {percentage}")
         
-        # Crop Cover Information
         if 'crop_cover' in data and data['crop_cover']:
-            crop_cover_html = """
-            <div class='json-card'>
-                <h4>🌾 Crop Cover</h4>
-            """
+            st.write("**Crop Cover:**")
             for crop_type, percentage in data['crop_cover'].items():
-                crop_cover_html += f"""
-                <div class='json-field'>
-                    <span class='field-label'>{crop_type}:</span>
-                    <span class='field-value'>{percentage}</span>
-                </div>
-                """
-            crop_cover_html += "</div>"
-            st.markdown(crop_cover_html, unsafe_allow_html=True)
+                st.write(f"  • {crop_type}: {percentage}")
 
 # --------------------------
-# Enhanced PDF Generation
+# Combined PDF Generation for All Searches
+# --------------------------
+def create_combined_pdf_report():
+    """Create a combined PDF report for all searches in the session"""
+    if not st.session_state.all_search_results:
+        return None
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+
+    # Title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=20,
+        spaceAfter=30,
+        textColor=colors.darkblue,
+        alignment=1  # Center alignment
+    )
+    story.append(Paragraph("Ohio Property Tax Combined Report - AI PropIQ", title_style))
+    story.append(Paragraph(f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+    story.append(Paragraph(f"Session ID: {st.session_state.app_session_id}", styles['Normal']))
+    story.append(Paragraph(f"Total Searches: {len(st.session_state.all_search_results)}", styles['Normal']))
+    story.append(Spacer(1, 30))
+
+    # Add each search result
+    for i, search_entry in enumerate(st.session_state.all_search_results):
+        # Search header
+        search_header_style = ParagraphStyle(
+            'SearchHeader',
+            parent=styles['Heading2'],
+            fontSize=16,
+            spaceAfter=20,
+            textColor=colors.darkblue
+        )
+        story.append(Paragraph(f"Search #{search_entry['search_id']}: Parcel ID {search_entry['parcel_id']}", search_header_style))
+        story.append(Paragraph(f"Search Time: {search_entry['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
+        story.append(Paragraph(f"County Filter: {search_entry['county_filter']}", styles['Normal']))
+        story.append(Spacer(1, 10))
+        
+        # Property data for each result
+        for j, property_data in enumerate(search_entry['results']):
+            if j > 0:  # Add space between multiple properties in same search
+                story.append(Spacer(1, 15))
+            
+            # Property overview table
+            overview_data = [
+                ['Property Information', 'Details'],
+                ['Parcel ID', property_data.get('parcel_id', 'N/A')],
+                ['Property Address', property_data.get('address', 'N/A')],
+                ['City, State ZIP', f"{property_data.get('addr_city', 'N/A')}, OH {property_data.get('addr_zip', 'N/A')}"],
+                ['County', property_data.get('county_name', 'N/A')],
+                ['Owner', property_data.get('owner', 'N/A')],
+                ['Market Value Total', f"${float(property_data.get('mkt_val_tot', 0)):,.2f}"],
+                ['Market Value Land', f"${float(property_data.get('mkt_val_land', 0)):,.2f}"],
+                ['Market Value Building', f"${float(property_data.get('mkt_val_bldg', 0)):,.2f}"],
+                ['Land Use Class', property_data.get('land_use_class', 'N/A')],
+                ['Building Sq Ft', property_data.get('bldg_sqft', 'N/A')],
+                ['Acreage', property_data.get('acreage', 'N/A')],
+                ['School District', property_data.get('school_district', 'N/A')]
+            ]
+            
+            table = Table(overview_data, colWidths=[2.5*inch, 3.5*inch])
+            table.setStyle(TableStyle([
+                ('BACKGROUND',(0,0),(-1,0),colors.lightblue),
+                ('GRID',(0,0),(-1,-1),1,colors.black),
+                ('FONTNAME',(0,0),(0,-1),'Helvetica-Bold'),
+                ('ALIGN',(0,0),(-1,-1),'LEFT'),
+                ('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('FONTSIZE',(0,0),(-1,-1),9)
+            ]))
+            story.append(table)
+        
+        story.append(Spacer(1, 20))
+        
+        # Add page break between searches (except for last one)
+        if i < len(st.session_state.all_search_results) - 1:
+            story.append(Spacer(1, 50))
+
+    # Footer
+    story.append(Spacer(1, 30))
+    story.append(Paragraph("Report generated by AI PropIQ - Ohio Property Tax Lookup Pro", styles['Normal']))
+    story.append(Paragraph("Data coverage: Ohio Statewide Property Information", styles['Normal']))
+
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+# --------------------------
+# Enhanced PDF Generation for Single Property
 # --------------------------
 def create_enhanced_ohio_pdf(data):
     """Create enhanced PDF report for Ohio property data"""
@@ -752,7 +788,7 @@ def create_enhanced_ohio_pdf(data):
         textColor=colors.darkblue,
         alignment=1  # Center alignment
     )
-    story.append(Paragraph("Ohio Property Tax Report - ReportAllUSA Data", title_style))
+    story.append(Paragraph("Ohio Property Tax Report - AI PropIQ", title_style))
     story.append(Spacer(1, 20))
 
     # Property overview table with enhanced data
@@ -787,7 +823,7 @@ def create_enhanced_ohio_pdf(data):
     # Add data source information
     story.append(Paragraph("Data Source Information", styles['Heading2']))
     story.append(Paragraph(f"Report generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-    story.append(Paragraph("Data provided by: ReportAllUSA API", styles['Normal']))
+    story.append(Paragraph("Data provided by: AI PropIQ API", styles['Normal']))
     story.append(Paragraph("Coverage: Ohio Statewide Property Data", styles['Normal']))
 
     doc.build(story)
@@ -795,14 +831,9 @@ def create_enhanced_ohio_pdf(data):
     return buffer
 
 # --------------------------
-# Session state
+# Initialize Session State
 # --------------------------
-if 'usage_count' not in st.session_state:
-    st.session_state.usage_count = 0
-if 'search_history' not in st.session_state:
-    st.session_state.search_history = []
-if 'cached_results' not in st.session_state:
-    st.session_state.cached_results = {}
+initialize_session_state()
 
 # Maximum usage limit
 MAX_SEARCHES = 10
@@ -841,6 +872,29 @@ with st.sidebar:
     
     st.divider()
     
+    # Session information
+    st.subheader("📊 Session Info")
+    st.write(f"**Session ID:** {st.session_state.app_session_id}")
+    st.write(f"**Total Searches:** {len(st.session_state.all_search_results)}")
+    if st.session_state.last_search_timestamp:
+        st.write(f"**Last Search:** {st.session_state.last_search_timestamp.strftime('%H:%M:%S')}")
+    
+    # Combined PDF download
+    if st.session_state.all_search_results:
+        st.divider()
+        st.subheader("📄 Combined Report")
+        combined_pdf = create_combined_pdf_report()
+        if combined_pdf:
+            st.download_button(
+                "📄 Download Combined PDF Report",
+                combined_pdf.getvalue(),
+                file_name=f"ohio_combined_report_{st.session_state.app_session_id}.pdf",
+                mime="application/pdf",
+                help="Download a combined PDF report of all searches in this session"
+            )
+    
+    st.divider()
+    
     # Recent searches
     if st.session_state.search_history:
         st.subheader("🕒 Recent Searches")
@@ -854,16 +908,19 @@ with st.sidebar:
         st.session_state.usage_count = 0
         st.session_state.search_history = []
         st.session_state.cached_results = {}
+        st.session_state.all_search_results = []
+        st.session_state.current_property_data = None
+        st.session_state.last_search_timestamp = None
         st.rerun()
 
 # --------------------------
 # Main App UI - Enhanced
 # --------------------------
-st.title("🏠 Ohio Property Tax Lookup Pro - All 88 Counties")
+st.title("🏠 Ohio Property Tax Lookup Pro - AI PropIQ")
 st.markdown("**Comprehensive Ohio property research with real data integration** | *10 searches per session*")
 
 # Enhanced region information
-st.info("🌟 **Now covering ALL 88 Ohio counties** with real property data from ReportAllUSA API for complete statewide coverage.")
+st.info("🌟 **Now covering ALL 88 Ohio counties** with real property data from AI PropIQ API for complete statewide coverage.")
 
 # Premium subscription banner
 st.markdown("""
@@ -937,27 +994,27 @@ if search_button and parcel_id:
                     search_scope = f" - {county_filter}" if county_filter != "All of Ohio (Recommended)" else " - Statewide"
                     st.session_state.search_history.append(f"{parcel_id}{search_scope} - {timestamp}")
                     
+                    # Add to session search results
+                    add_search_to_history(parcel_id, county_filter, api_response['results'])
+                    
                     # Success message
                     total_found = api_response.get('total_records', len(api_response.get('results', [])))
-                    st.success(f"✅ Found {total_found} Ohio property record(s)! (Search {st.session_state.usage_count}/{MAX_SEARCHES}) - Source: {api_response.get('api_source', 'ReportAllUSA')}")
+                    st.success(f"✅ Found {total_found} Ohio property record(s)! (Search {st.session_state.usage_count}/{MAX_SEARCHES}) - Source: {api_response.get('api_source', 'AI PropIQ')}")
                     
                     # Display results
                     results = api_response['results']
                     if len(results) == 1:
-                        create_enhanced_ohio_property_cards(results[0])
-                        # Display comprehensive JSON cards in sidebar
-                        display_json_cards_in_sidebar(results[0])
+                        create_clean_property_info_cards(results[0])
+                        # Display comprehensive property details on main page
+                        display_clean_property_details(results[0])
                     else:
                         st.info(f"Found {len(results)} matching properties:")
                         for i, property_data in enumerate(results[:5]):  # Show top 5 results
                             county_name = property_data.get('county_name', property_data.get('county', 'N/A'))
                             address = property_data.get('address', property_data.get('property_address', 'N/A'))
                             with st.expander(f"Property {i+1}: {address} - {county_name}"):
-                                create_enhanced_ohio_property_cards(property_data)
-                        
-                        # Display JSON cards for first result in sidebar
-                        if results:
-                            display_json_cards_in_sidebar(results[0])
+                                create_clean_property_info_cards(property_data)
+                                display_clean_property_details(property_data)
 
                     # Enhanced export options with JSON Raw Response
                     st.divider()
@@ -994,7 +1051,7 @@ if search_button and parcel_id:
                     if api_response.get('raw_response'):
                         st.divider()
                         st.subheader("🔧 Raw API Response")
-                        with st.expander("View Raw JSON Response from ReportAllUSA API", expanded=False):
+                        with st.expander("View Raw JSON Response from AI PropIQ API", expanded=False):
                             st.json(api_response['raw_response'])
                             
                 else:
@@ -1033,7 +1090,7 @@ st.markdown("""
 # Custom footer
 st.markdown("""
 <div class='custom-footer'>
-    <p>Ohio Property Tax Lookup Pro - Powered by ReportAllUSA API | 
+    <p>Ohio Property Tax Lookup Pro - Powered by AI PropIQ | 
     <a href='https://aipropiq.com/product/monthsubscription/' target='_blank' style='color: #2196F3;'>Get Premium Access</a></p>
 </div>
 """, unsafe_allow_html=True)
